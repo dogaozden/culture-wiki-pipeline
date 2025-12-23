@@ -1,0 +1,744 @@
+/* ==========================================================================
+   Culture Wiki — Stylesheet
+   A clean, elegant wiki design inspired by the Culture's refined aesthetics
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   CSS Custom Properties (Theme Variables)
+   -------------------------------------------------------------------------- */
+
+:root {
+    /* Typography */
+    --font-display: 'Outfit', system-ui, sans-serif;
+    --font-body: 'Crimson Pro', Georgia, serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    
+    /* Spacing */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+    --space-3xl: 4rem;
+    
+    /* Layout */
+    --sidebar-width: 260px;
+    --content-max-width: 800px;
+    --border-radius: 4px;
+    
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-base: 250ms ease;
+}
+
+/* Dark theme (default) */
+[data-theme="dark"] {
+    --color-bg: #0a0a0f;
+    --color-bg-elevated: #12121a;
+    --color-bg-hover: #1a1a24;
+    --color-surface: #16161f;
+    --color-border: #2a2a3a;
+    --color-border-subtle: #1f1f2a;
+    
+    --color-text: #e8e8ed;
+    --color-text-secondary: #9898a8;
+    --color-text-tertiary: #5f5f70;
+    
+    --color-accent: #7aa2f7;
+    --color-accent-hover: #89b4fa;
+    --color-accent-subtle: rgba(122, 162, 247, 0.15);
+    
+    --color-citation: #bb9af7;
+    --color-citation-hover: #cba6ff;
+    --color-citation-bg: rgba(187, 154, 247, 0.1);
+    
+    --color-quote-border: #3d3d52;
+    --color-quote-bg: rgba(255, 255, 255, 0.02);
+    
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Light theme */
+[data-theme="light"] {
+    --color-bg: #fafafa;
+    --color-bg-elevated: #ffffff;
+    --color-bg-hover: #f0f0f5;
+    --color-surface: #ffffff;
+    --color-border: #e0e0e8;
+    --color-border-subtle: #eaeaf0;
+    
+    --color-text: #1a1a2e;
+    --color-text-secondary: #5a5a70;
+    --color-text-tertiary: #8a8a9a;
+    
+    --color-accent: #4a6fa5;
+    --color-accent-hover: #3a5f95;
+    --color-accent-subtle: rgba(74, 111, 165, 0.1);
+    
+    --color-citation: #7c3aed;
+    --color-citation-hover: #6d28d9;
+    --color-citation-bg: rgba(124, 58, 237, 0.08);
+    
+    --color-quote-border: #d0d0e0;
+    --color-quote-bg: rgba(0, 0, 0, 0.02);
+    
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+
+/* --------------------------------------------------------------------------
+   Base & Reset
+   -------------------------------------------------------------------------- */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-body);
+    font-size: 1.125rem;
+    line-height: 1.7;
+    color: var(--color-text);
+    background-color: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+
+/* --------------------------------------------------------------------------
+   Layout
+   -------------------------------------------------------------------------- */
+
+.layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--color-bg-elevated);
+    border-right: 1px solid var(--color-border-subtle);
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    overflow-y: auto;
+}
+
+.content {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    padding: var(--space-2xl) var(--space-xl);
+    max-width: calc(var(--content-max-width) + var(--space-xl) * 2 + var(--sidebar-width));
+}
+
+
+/* --------------------------------------------------------------------------
+   Sidebar
+   -------------------------------------------------------------------------- */
+
+.sidebar-header {
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    text-decoration: none;
+    color: var(--color-text);
+}
+
+.logo-glyph {
+    font-size: 1.5rem;
+    color: var(--color-accent);
+}
+
+.logo-text {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.sidebar-search {
+    padding: var(--space-md) var(--space-lg);
+}
+
+.sidebar-search input {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.sidebar-search input:focus {
+    border-color: var(--color-accent);
+}
+
+.sidebar-search input::placeholder {
+    color: var(--color-text-tertiary);
+}
+
+.nav-sections {
+    list-style: none;
+    margin: 0;
+    padding: var(--space-md) 0;
+    flex: 1;
+}
+
+.nav-section {
+    margin: 0;
+}
+
+.nav-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+.nav-section-header:hover {
+    color: var(--color-text);
+    background: var(--color-bg-hover);
+}
+
+.nav-icon {
+    font-size: 0.75rem;
+    color: var(--color-accent);
+    opacity: 0.7;
+}
+
+.sidebar-footer {
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--color-border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.theme-toggle {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: var(--space-xs) var(--space-sm);
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.theme-toggle:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+[data-theme="dark"] .theme-icon-light { display: none; }
+[data-theme="light"] .theme-icon-dark { display: none; }
+
+.sidebar-meta {
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary);
+}
+
+
+/* --------------------------------------------------------------------------
+   Article Styles
+   -------------------------------------------------------------------------- */
+
+.wiki-article {
+    max-width: var(--content-max-width);
+}
+
+.article-header {
+    margin-bottom: var(--space-2xl);
+    padding-bottom: var(--space-xl);
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.article-type-badge {
+    display: inline-block;
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-accent);
+    background: var(--color-accent-subtle);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--space-md);
+}
+
+.article-title {
+    font-family: var(--font-display);
+    font-size: 2.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space-md) 0;
+    color: var(--color-text);
+}
+
+.article-aliases {
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--space-sm) 0;
+}
+
+.alias {
+    font-style: italic;
+}
+
+.article-appearances {
+    font-size: 0.9rem;
+    color: var(--color-text-tertiary);
+    margin: 0;
+}
+
+.book-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    margin-right: var(--space-xs);
+}
+
+.article-summary {
+    font-size: 1.15rem;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-xl);
+    padding-left: var(--space-md);
+    border-left: 3px solid var(--color-accent);
+}
+
+
+/* --------------------------------------------------------------------------
+   Table of Contents
+   -------------------------------------------------------------------------- */
+
+.article-toc {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-2xl);
+}
+
+.toc-title {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-tertiary);
+    margin: 0 0 var(--space-md) 0;
+}
+
+.toc-list {
+    margin: 0;
+    padding-left: var(--space-lg);
+}
+
+.toc-list li {
+    margin-bottom: var(--space-xs);
+}
+
+.toc-list a {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    color: var(--color-accent);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+.toc-list a:hover {
+    color: var(--color-accent-hover);
+}
+
+
+/* --------------------------------------------------------------------------
+   Article Body & Sections
+   -------------------------------------------------------------------------- */
+
+.article-section {
+    margin-bottom: var(--space-2xl);
+}
+
+.article-section h2 {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-md) 0;
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.section-content p {
+    margin: 0 0 var(--space-md) 0;
+}
+
+.section-content p:last-child {
+    margin-bottom: 0;
+}
+
+
+/* --------------------------------------------------------------------------
+   Citations — The Star of the Show
+   -------------------------------------------------------------------------- */
+
+.citation-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4em;
+    height: 1.4em;
+    padding: 0 0.3em;
+    margin: 0 0.1em;
+    font-family: var(--font-display);
+    font-size: 0.7em;
+    font-weight: 600;
+    color: var(--color-citation);
+    background: var(--color-citation-bg);
+    border-radius: 3px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    vertical-align: super;
+}
+
+.citation-link:hover {
+    color: var(--color-bg-elevated);
+    background: var(--color-citation);
+    transform: scale(1.1);
+}
+
+/* Citation Tooltip */
+.citation-tooltip {
+    position: fixed;
+    z-index: 1000;
+    width: 400px;
+    max-width: 90vw;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px);
+    transition: all var(--transition-base);
+    pointer-events: none;
+}
+
+.citation-tooltip.visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.citation-tooltip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.citation-book {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-accent);
+}
+
+.citation-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.citation-close:hover {
+    color: var(--color-text);
+}
+
+.citation-quote {
+    margin: 0;
+    padding: var(--space-md);
+    font-size: 0.95rem;
+    font-style: italic;
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+    border-left: 3px solid var(--color-citation);
+    background: var(--color-quote-bg);
+}
+
+
+/* --------------------------------------------------------------------------
+   References Section
+   -------------------------------------------------------------------------- */
+
+.article-references {
+    margin-top: var(--space-3xl);
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--color-border);
+}
+
+.article-references h2 {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-lg) 0;
+}
+
+.references-list {
+    margin: 0;
+    padding-left: var(--space-lg);
+}
+
+.reference-item {
+    margin-bottom: var(--space-lg);
+    font-size: 0.95rem;
+    scroll-margin-top: var(--space-xl);
+}
+
+.reference-item:target {
+    animation: highlight-pulse 2s ease-out;
+}
+
+@keyframes highlight-pulse {
+    0% { background-color: var(--color-citation-bg); }
+    100% { background-color: transparent; }
+}
+
+.reference-book {
+    font-family: var(--font-display);
+    font-weight: 500;
+    color: var(--color-accent);
+}
+
+.reference-quote {
+    margin: var(--space-sm) 0 0 0;
+    padding: var(--space-sm) var(--space-md);
+    font-style: italic;
+    color: var(--color-text-secondary);
+    border-left: 2px solid var(--color-quote-border);
+    background: var(--color-quote-bg);
+}
+
+
+/* --------------------------------------------------------------------------
+   Related Entities
+   -------------------------------------------------------------------------- */
+
+.related-entities {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius);
+    padding: var(--space-lg);
+    margin: var(--space-2xl) 0;
+}
+
+.related-entities h2 {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-tertiary);
+    margin: 0 0 var(--space-md) 0;
+}
+
+.related-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.related-list a {
+    display: inline-block;
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    color: var(--color-accent);
+    background: var(--color-accent-subtle);
+    border-radius: var(--border-radius);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+.related-list a:hover {
+    background: var(--color-accent);
+    color: var(--color-bg-elevated);
+}
+
+
+/* --------------------------------------------------------------------------
+   Article Meta
+   -------------------------------------------------------------------------- */
+
+.article-meta {
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-border-subtle);
+    font-size: 0.8rem;
+    color: var(--color-text-tertiary);
+}
+
+
+/* --------------------------------------------------------------------------
+   Index Pages
+   -------------------------------------------------------------------------- */
+
+.index-header {
+    margin-bottom: var(--space-2xl);
+}
+
+.index-header h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-sm) 0;
+}
+
+.index-header p {
+    font-size: 1.1rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
+.entity-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-lg);
+}
+
+.entity-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius);
+    padding: var(--space-lg);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+.entity-card:hover {
+    border-color: var(--color-accent);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.entity-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-sm) 0;
+}
+
+.entity-card p {
+    font-size: 0.95rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+
+/* --------------------------------------------------------------------------
+   Responsive Design
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform var(--transition-base);
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    
+    .content {
+        margin-left: 0;
+        padding: var(--space-lg) var(--space-md);
+    }
+    
+    .article-title {
+        font-size: 1.8rem;
+    }
+    
+    .citation-tooltip {
+        width: calc(100vw - 2rem);
+        left: 1rem !important;
+        right: 1rem !important;
+    }
+}
+
+
+/* --------------------------------------------------------------------------
+   Print Styles
+   -------------------------------------------------------------------------- */
+
+@media print {
+    .sidebar,
+    .theme-toggle,
+    .citation-tooltip {
+        display: none !important;
+    }
+    
+    .content {
+        margin-left: 0;
+        max-width: 100%;
+    }
+    
+    .citation-link {
+        color: #000;
+        background: none;
+        border: 1px solid #000;
+    }
+}

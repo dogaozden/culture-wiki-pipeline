@@ -1,0 +1,22 @@
+# Culture Wiki Generator - Dependencies
+
+# API Client
+google-generativeai>=0.8.0
+
+# Text Processing
+tiktoken>=0.5.0       # Token counting
+
+# Templating
+jinja2>=3.1.0
+
+# Utilities
+tqdm>=4.66.0          # Progress bars
+tenacity>=8.2.0       # Retry logic for API calls
+pydantic>=2.0.0       # Data validation for schemas
+
+# Optional: Async processing
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+
+# Development
+python-dotenv>=1.0.0  # For loading .env files with API keys
