@@ -68,8 +68,21 @@ For each character provide:
   - strength: Intensity/importance of relationship 1-10 (10=central conflict/love, 5=working relationship, 1=acquaintance)
   - quote: EXACT text evidence (20-50 words)
 
-- information: Array of facts observed in THIS chapter:
-  - fact: One specific observation (role, action, relationship, trait, appearance)
+- information: Extract ALL notable facts about this character in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * Physical appearance and description
+  * Actions taken and behaviors
+  * Dialogue and statements made
+  * Relationships revealed or implied
+  * Backstory and history
+  * Emotions, reactions, and internal states
+  * Abilities, skills, or roles
+  * Possessions or associated objects
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text supporting this (20-100 words, complete sentences)
   - location: Brief context ("dialogue", "narrator description", "internal monologue")
 
@@ -116,8 +129,21 @@ For each ship/Mind provide:
   - strength: Intensity 1-10 (10=central conflict, 5=regular interaction, 1=passing mention)
   - quote: EXACT text evidence (20-50 words)
 
-- information: Array of facts:
-  - fact: One observation (action, personality trait, capability, history)
+- information: Extract ALL notable facts about this ship/Mind in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * Physical description and size
+  * Capabilities and weapons
+  * Personality and quirks
+  * Actions taken and decisions made
+  * Communications and dialogue
+  * History and backstory
+  * Current mission or purpose
+  * Crew, passengers, or inhabitants
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Brief context
 
@@ -155,8 +181,19 @@ For each location provide:
   - "supporting": Scene takes place here briefly
   - "mentioned": Only referenced, not a setting
 
-- information: Array of facts:
-  - fact: One observation (description, what happens there, characteristics)
+- information: Extract ALL notable facts about this location in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * Physical description and atmosphere
+  * Size and scale
+  * Inhabitants and population
+  * Events that occur there
+  * History and significance
+  * Unique features or landmarks
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context in narrative
 
@@ -194,8 +231,18 @@ For each technology provide:
   - "supporting": Used or mentioned with some detail
   - "mentioned": Only named in passing
 
-- information: Array of facts:
-  - fact: What it does, how it works, what happens when used
+- information: Extract ALL notable facts about this technology in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * How it works and operates
+  * Effects and capabilities
+  * Usage and applications
+  * Limitations or drawbacks
+  * Who uses it and how
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context
 
@@ -236,8 +283,19 @@ For each faction provide:
   - strength: Intensity 1-10 (10=open war/deep alliance, 5=diplomatic tension, 1=passing mention)
   - quote: EXACT text evidence (20-50 words)
 
-- information: Array of facts:
-  - fact: Characteristic, belief, action, relationship to other factions
+- information: Extract ALL notable facts about this faction in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * Beliefs and ideology
+  * Actions and decisions
+  * Relationships with other factions
+  * Internal structure and leadership
+  * History and origins
+  * Goals and motivations
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context
 
@@ -274,8 +332,18 @@ For each event provide:
   - "supporting": Discussed with context
   - "mentioned": Only referenced briefly
 
-- information: Array of facts:
-  - fact: What happened, outcome, significance
+- information: Extract ALL notable facts about this event in THIS chapter.
+  Be thorough — extract every distinct piece of information.
+  
+  Look for facts about:
+  * What happened and how
+  * Causes and triggers
+  * Outcomes and consequences
+  * Who was involved
+  * Significance and impact
+  
+  For each fact:
+  - fact: One specific observation
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context in narrative
 
