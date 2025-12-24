@@ -15,7 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Culture Wiki")
     parser.add_argument(
         "--stage",
-        choices=["chunk", "extract", "merge", "synthesize", "render", "all"],
+        choices=["chunk", "extract", "merge", "synthesize", "render", "clean", "all"],
         default="all",
         help="Pipeline stage to run",
     )
@@ -34,8 +34,30 @@ def main() -> None:
         type=int,
         help="For extract stage: process only the first N chapters",
     )
+    parser.add_argument(
+        "--clean",
+        action="append",
+        choices=[
+            "all",
+            "cache",
+            "extractions",
+            "entities",
+            "articles",
+            "wiki",
+            "chunks",
+            "output",
+        ],
+        help="For clean stage: which outputs to delete (use multiple flags)",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="For clean stage: skip confirmation prompt",
+    )
 
     args = parser.parse_args()
+    if args.clean and args.stage != "clean":
+        parser.error("--clean requires --stage clean")
     pipeline = Pipeline()
     pipeline.run(
         stage=args.stage,
@@ -44,6 +66,8 @@ def main() -> None:
         force=args.force,
         dry_run=args.dry_run,
         limit=args.limit,
+        clean_targets=args.clean,
+        yes=args.yes,
     )
 
 

@@ -18,7 +18,7 @@ from .utils import ensure_dir, read_json, slugify
 
 logger = logging.getLogger(__name__)
 
-CITATION_PATTERN = re.compile(r"\[(\d+)\]")
+CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 
 def _env() -> Environment:
@@ -60,8 +60,11 @@ def _link_citations(text: str) -> Markup:
         return Markup("")
 
     def repl(match: re.Match[str]) -> str:
-        num = match.group(1)
-        return f'<a href="#cite-{num}" class="citation-link" data-citation-id="{num}">[{num}]</a>'
+        numbers = [n.strip() for n in match.group(1).split(",") if n.strip()]
+        return ", ".join(
+            f'<a href="#cite-{num}" class="citation-link" data-citation-id="{num}">[{num}]</a>'
+            for num in numbers
+        )
 
     return Markup(CITATION_PATTERN.sub(repl, text))
 

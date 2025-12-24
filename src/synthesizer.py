@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 from . import config
 from .chunker import load_chapters
 from .gemini_client import GeminiClient
-from .models import Article, ArticleSection, Citation, EntityExtraction, MergedEntity
+from .models import Article, ArticleSection, Chapter, Citation, EntityExtraction, MergedEntity
 from .utils import read_json, slugify, utc_now, write_json
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are writing a wiki article for a Culture series encyclopedia. Write in an encyclopedic tone. EVERY factual claim must have an inline citation in the format [N] where N is the citation number. Use ONLY the provided facts and quotes. Do not add information that is not present in the sources."""
+
+CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
@@ -52,9 +55,51 @@ def _matching_extractions(
     return matches
 
 
-def _format_extractions_for_prompt(pairs: List[Tuple[EntityExtraction, Dict]]) -> str:
+def _normalize_for_match(text: str) -> str:
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+    }
+    for src, dest in replacements.items():
+        text = text.replace(src, dest)
+    return " ".join(text.split())
+
+
+def _quote_in_text(quote: str, text: str) -> bool:
+    if not quote or not text:
+        return False
+    return _normalize_for_match(quote) in _normalize_for_match(text)
+
+
+def _extract_citation_ids(text: str) -> set[int]:
+    ids: set[int] = set()
+    for match in CITATION_PATTERN.finditer(text or ""):
+        numbers = [n.strip() for n in match.group(1).split(",") if n.strip()]
+        for num in numbers:
+            try:
+                ids.add(int(num))
+            except ValueError:
+                continue
+    return ids
+
+
+def _format_extractions_for_prompt(
+    pairs: List[Tuple[EntityExtraction, Dict]],
+    chunk_map: Dict[str, Chapter],
+) -> str:
     lines: List[str] = []
     for extraction, ent in pairs:
+        chapter = chunk_map.get(extraction.chunk_id)
+        if chapter is None:
+            logger.warning(
+                "Missing chapter text for %s; skipping extraction facts",
+                extraction.chunk_id,
+            )
+            continue
+        valid_infos: List[Dict] = []
         lines.append(
             f"- Source chunk {extraction.chunk_id} ({extraction.chapter_title}) for {ent['name']}"
         )
@@ -62,9 +107,14 @@ def _format_extractions_for_prompt(pairs: List[Tuple[EntityExtraction, Dict]]) -
             fact = info.get("fact", "").strip()
             quote = info.get("quote", "").strip()
             context = info.get("location") or ""
+            if not _quote_in_text(quote, chapter.text):
+                continue
+            valid_infos.append(info)
             lines.append(
                 f"  • Fact: {fact}\n    Quote: \"{quote}\"\n    Context: {context}"
             )
+        if not valid_infos:
+            lines.pop()
     return "\n".join(lines)
 
 
@@ -89,10 +139,10 @@ Return a JSON object with:
 """
 
 
-def _build_chunk_source_map() -> Dict[str, str]:
-    source_map: Dict[str, str] = {}
+def _build_chunk_context_map() -> Dict[str, Chapter]:
+    chunk_map: Dict[str, Chapter] = {}
     if not config.BOOKS_DIR.exists():
-        return source_map
+        return chunk_map
     for book_dir in config.BOOKS_DIR.iterdir():
         if not book_dir.is_dir() or book_dir.name.startswith("."):
             continue
@@ -102,8 +152,8 @@ def _build_chunk_source_map() -> Dict[str, str]:
             logger.warning("Failed to load chapters for %s: %s", book_dir.name, exc)
             continue
         for chapter in chapters:
-            source_map[chapter.chunk_id] = chapter.source_file
-    return source_map
+            chunk_map[chapter.chunk_id] = chapter
+    return chunk_map
 
 
 def synthesize_articles(
@@ -112,9 +162,16 @@ def synthesize_articles(
     """Generate wiki articles for a specific entity type."""
     merged_entities = _load_merged_entities(entity_type)
     extractions = _load_extractions(entity_type)
-    source_map = _build_chunk_source_map()
+    chunk_map = _build_chunk_context_map()
     output_dir = config.ARTICLES_DIR / entity_type
     output_dir.mkdir(parents=True, exist_ok=True)
+    expected_slugs = {slugify(ent.canonical_name) for ent in merged_entities}
+
+    if force:
+        for path in output_dir.glob("*.json"):
+            if path.stem not in expected_slugs:
+                logger.info("Removing stale article %s", path.name)
+                path.unlink()
 
     pending: List[MergedEntity] = []
     for merged in merged_entities:
@@ -136,14 +193,21 @@ def synthesize_articles(
         matches = _matching_extractions(merged, extractions)
         if not matches:
             logger.warning("No extractions found for %s; skipping", merged.canonical_name)
+            if force and outfile.exists():
+                outfile.unlink()
             return
 
-        formatted = _format_extractions_for_prompt(matches)
+        formatted = _format_extractions_for_prompt(matches, chunk_map)
+        if not formatted.strip():
+            logger.warning(
+                "No valid quotes found for %s; skipping synthesis", merged.canonical_name
+            )
+            if force and outfile.exists():
+                outfile.unlink()
+            return
         prompt = build_synthesis_prompt(merged, entity_type, formatted)
-        cache_key = f"synth:{entity_type}:{slug}"
-
         try:
-            payload = client.synthesize(prompt, cache_key=cache_key)
+            payload = client.synthesize(prompt)
             citations_payload = payload.get("citations", [])
             citations: List[Citation] = []
             for item in citations_payload:
@@ -155,11 +219,33 @@ def synthesize_articles(
                     )
                     continue
                 chunk_id = item.get("chunk_id")
-                source_file = source_map.get(chunk_id)
-                if source_file and not item.get("source_file"):
-                    item = {**item, "source_file": source_file}
+                chapter = chunk_map.get(chunk_id)
+                if chapter is None:
+                    logger.warning(
+                        "Unknown chunk_id for citation in %s: %r",
+                        merged.canonical_name,
+                        chunk_id,
+                    )
+                    continue
+                quote = str(item.get("quote", "")).strip()
+                if not _quote_in_text(quote, chapter.text):
+                    logger.warning(
+                        "Citation quote not found for %s (%s)",
+                        merged.canonical_name,
+                        chunk_id,
+                    )
+                    continue
+                item = {
+                    **item,
+                    "source_file": chapter.source_file,
+                    "chapter": chapter.title,
+                    "book": chapter.book_title,
+                }
                 citations.append(Citation(**item))
 
+            sections = [
+                ArticleSection(**section) for section in payload.get("sections", [])
+            ]
             article = Article(
                 entity_name=merged.canonical_name,
                 entity_type=entity_type.rstrip("s"),
@@ -167,14 +253,27 @@ def synthesize_articles(
                 aliases=merged.aliases,
                 appears_in=merged.appears_in,
                 summary=payload.get("summary", ""),
-                sections=[
-                    ArticleSection(**section)
-                    for section in payload.get("sections", [])
-                ],
+                sections=sections,
                 citations=citations,
                 related_entities=payload.get("related_entities", []),
                 generated_at=utc_now(),
             )
+            cited_ids = set(c.id for c in citations)
+            referenced_ids = set()
+            referenced_ids.update(_extract_citation_ids(article.summary))
+            for section in sections:
+                referenced_ids.update(_extract_citation_ids(section.content))
+            if referenced_ids and not referenced_ids.issubset(cited_ids):
+                missing = sorted(referenced_ids - cited_ids)
+                logger.warning(
+                    "Missing citations for %s; skipping article. Missing ids: %s",
+                    merged.canonical_name,
+                    missing,
+                )
+                if force and outfile.exists():
+                    outfile.unlink()
+                return
+
             write_json(article.model_dump(), outfile)
             logger.info("Synthesized article for %s", merged.canonical_name)
         except Exception as exc:

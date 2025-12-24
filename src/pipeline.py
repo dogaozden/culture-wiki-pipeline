@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from __future__ import annotations
-
 import logging
+import shutil
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -59,11 +58,16 @@ class Pipeline:
         force: bool = False,
         dry_run: bool = False,
         limit: Optional[int] = None,
+        clean_targets: Optional[List[str]] = None,
+        yes: bool = False,
     ) -> None:
-        stages = ["chunk", "extract", "merge", "synthesize", "render"]
+        stages = ["chunk", "extract", "merge", "synthesize", "render", "clean"]
         if stage != "all" and stage not in stages:
             raise ValueError(f"Unknown stage '{stage}'")
 
+        if stage == "clean":
+            self.clean(targets=clean_targets, yes=yes)
+            return
         if stage in ("chunk", "all"):
             self.chunk(book=book, force=force)
         if stage in ("extract", "all"):
@@ -130,3 +134,51 @@ class Pipeline:
         from .renderer import render_all
 
         render_all()
+
+    def clean(self, targets: Optional[List[str]] = None, yes: bool = False) -> None:
+        target_map = {
+            "cache": config.CACHE_DIR,
+            "extractions": config.EXTRACTIONS_DIR,
+            "entities": config.ENTITIES_DIR,
+            "articles": config.ARTICLES_DIR,
+            "wiki": config.WIKI_DIR,
+            "chunks": config.CHUNKS_DIR,
+        }
+
+        selected = targets or ["all"]
+        paths: List[Path] = []
+        if "all" in selected:
+            paths = list(target_map.values())
+        else:
+            for target in selected:
+                if target == "output":
+                    paths.extend([config.ARTICLES_DIR, config.WIKI_DIR])
+                else:
+                    paths.append(target_map[target])
+
+        unique_paths: List[Path] = []
+        for path in paths:
+            if path not in unique_paths:
+                unique_paths.append(path)
+
+        if not unique_paths:
+            logger.info("No clean targets selected")
+            return
+
+        logger.info("Clean will remove:")
+        for path in unique_paths:
+            logger.info("  - %s", path)
+
+        if not yes:
+            response = input("Delete these paths? [y/N]: ").strip().lower()
+            if response not in ("y", "yes"):
+                logger.info("Clean cancelled.")
+                return
+
+        for path in unique_paths:
+            if not path.exists():
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()

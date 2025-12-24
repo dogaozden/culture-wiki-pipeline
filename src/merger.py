@@ -38,6 +38,69 @@ def _find_existing_key(
     return None
 
 
+def _name_keys(entity: MergedEntity) -> set[str]:
+    keys = {slugify(entity.canonical_name)}
+    keys.update(slugify(alias) for alias in entity.aliases)
+    return {k for k in keys if k}
+
+
+def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
+    """Merge entities that share any alias/name slug."""
+    entities = list(merged.values())
+    if not entities:
+        return {}
+
+    parent = list(range(len(entities)))
+
+    def find(idx: int) -> int:
+        while parent[idx] != idx:
+            parent[idx] = parent[parent[idx]]
+            idx = parent[idx]
+        return idx
+
+    def union(a: int, b: int) -> None:
+        ra = find(a)
+        rb = find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    name_to_idx: Dict[str, int] = {}
+    for idx, entity in enumerate(entities):
+        for key in _name_keys(entity):
+            if key in name_to_idx:
+                union(idx, name_to_idx[key])
+            else:
+                name_to_idx[key] = idx
+
+    grouped: Dict[int, List[MergedEntity]] = {}
+    for idx, entity in enumerate(entities):
+        grouped.setdefault(find(idx), []).append(entity)
+
+    consolidated: Dict[str, MergedEntity] = {}
+    for group_entities in grouped.values():
+        canonical = max(
+            (e.canonical_name for e in group_entities), key=lambda n: len(n)
+        )
+        aliases: set[str] = set()
+        appears_in: set[str] = set()
+        extraction_refs: set[str] = set()
+        for ent in group_entities:
+            aliases.update(ent.aliases)
+            aliases.add(ent.canonical_name)
+            appears_in.update(ent.appears_in)
+            extraction_refs.update(ent.extraction_refs)
+
+        aliases.discard(canonical)
+        consolidated[slugify(canonical)] = MergedEntity(
+            canonical_name=canonical,
+            aliases=sorted(aliases),
+            appears_in=sorted(appears_in),
+            extraction_refs=sorted(extraction_refs),
+        )
+
+    return consolidated
+
+
 def merge_entities(entity_type: str, force: bool = False) -> Path:
     """Merge entities of a type and write merged JSON."""
     output_path = config.ENTITIES_DIR / f"{entity_type}.json"
@@ -72,6 +135,7 @@ def merge_entities(entity_type: str, force: bool = False) -> Path:
                     extraction_refs=[extraction.chunk_id],
                 )
 
+    merged = _consolidate_overlaps(merged)
     write_json({"entities": [m.model_dump() for m in merged.values()]}, output_path)
     logger.info(
         "Merged %s entities (%s unique) -> %s",
@@ -80,4 +144,3 @@ def merge_entities(entity_type: str, force: bool = False) -> Path:
         output_path,
     )
     return output_path
-

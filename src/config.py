@@ -2,8 +2,16 @@
 
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency in some environments
+    load_dotenv = None
+
 # Project paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+if load_dotenv:
+    load_dotenv(PROJECT_ROOT / ".env", override=True)
 BOOKS_DIR = PROJECT_ROOT / "books"
 DATA_DIR = PROJECT_ROOT / "data"
 CHUNKS_DIR = DATA_DIR / "chunks"
@@ -36,8 +44,7 @@ ENTITY_TYPES = [
 ]
 
 # Parallelism
-PARALLEL_WORKERS = 8
+PARALLEL_WORKERS = 16
 
 # I/O defaults
 DEFAULT_ENCODING = "utf-8"
-
