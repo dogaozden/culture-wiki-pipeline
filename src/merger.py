@@ -12,6 +12,57 @@ from .utils import read_json, slugify, write_json
 
 logger = logging.getLogger(__name__)
 
+# Patterns for filtering out non-name aliases (hallucinated descriptive phrases)
+# These are common patterns that LLMs extract as "aliases" but aren't proper names
+ALIAS_BLACKLIST_PATTERNS = [
+    # Articles + generic nouns
+    r'^(a|an|the)\s+',           # "the woman", "an old flame"
+    r'^(this|that)\s+',          # "this human", "that drone"
+    # Pronouns
+    r'^(he|she|it|they|him|her|them|his|hers|its|their)$',
+    r'^(he/she|s?he)$',
+    # Generic role descriptions
+    r'^(old|young|new)\s+',      # "old perpetually pregnant"
+    # Possessive references
+    r'^(my|your|our|her|his|their)\s+',  # "her man", "your girl"
+]
+
+# Specific known bad aliases to always filter
+ALIAS_BLACKLIST_EXACT = {
+    'an old flame', 'the woman', 'the man', 'the human', 'the drone',
+    'the avatar', 'the creature', 'the emissary', 'the bird', 'the machine',
+    'old perpetually pregnant', 'the other woman', 'lady', 'mistress',
+    'boy', 'child', 'arse-hole', 'imbecile', 'moron', 'wretch', 'spy',
+    'he', 'she', 'it', 'they', 'he/she', 'her man', 'your girl', 'our lass',
+    'the bad guy', 'the girl', 'this human', 'young lady', 'representative',
+}
+
+import re
+_ALIAS_PATTERNS = [re.compile(p, re.IGNORECASE) for p in ALIAS_BLACKLIST_PATTERNS]
+
+
+def _is_valid_alias(alias: str) -> bool:
+    """Check if an alias is a proper name vs a descriptive phrase."""
+    if not alias or not alias.strip():
+        return False
+    normalized = alias.strip().lower()
+    # Check exact blacklist
+    if normalized in ALIAS_BLACKLIST_EXACT:
+        return False
+    # Check patterns
+    for pattern in _ALIAS_PATTERNS:
+        if pattern.search(normalized):
+            return False
+    # Very short aliases are often bad (single letters, pronouns)
+    if len(normalized) < 2:
+        return False
+    return True
+
+
+def _filter_aliases(aliases: List[str]) -> List[str]:
+    """Filter out hallucinated/descriptive aliases, keeping only proper names."""
+    return [a for a in aliases if _is_valid_alias(a)]
+
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
     base_dir = config.EXTRACTIONS_DIR / entity_type
@@ -93,7 +144,7 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEn
         aliases.discard(canonical)
         consolidated[slugify(canonical)] = MergedEntity(
             canonical_name=canonical,
-            aliases=sorted(aliases),
+            aliases=sorted(_filter_aliases(list(aliases))),
             appears_in=sorted(appears_in),
             extraction_refs=sorted(extraction_refs),
         )
@@ -119,8 +170,9 @@ def merge_entities(entity_type: str, force: bool = False) -> Path:
 
             if existing_key:
                 record = merged[existing_key]
+                new_aliases = _filter_aliases(ent.aliases + [ent.name, record.canonical_name])
                 record.aliases = sorted(
-                    set(record.aliases + ent.aliases + [ent.name, record.canonical_name])
+                    set(record.aliases + new_aliases)
                 )
                 if book_slug not in record.appears_in:
                     record.appears_in.append(book_slug)
@@ -130,7 +182,7 @@ def merge_entities(entity_type: str, force: bool = False) -> Path:
                 key = slugify(ent.name)
                 merged[key] = MergedEntity(
                     canonical_name=ent.name,
-                    aliases=sorted(set(ent.aliases)),
+                    aliases=sorted(_filter_aliases(list(ent.aliases))),
                     appears_in=[book_slug],
                     extraction_refs=[extraction.chunk_id],
                 )

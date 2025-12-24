@@ -34,7 +34,11 @@ Include:
 
 For each character provide:
 - name: Primary name used in this chapter
-- aliases: Other names, titles, nicknames used (empty array if none)
+- aliases: Other names/titles this character is CALLED in the text (empty array if none)
+  STRICT: Only include terms that appear VERBATIM as proper names, titles, or forms of 
+  address for this character. Include: shortened names ("Dajeil"), formal titles 
+  ("Ms Gelian"), ranks ("Commander"). EXCLUDE: descriptive phrases ("the woman", 
+  "an old flame"), pronouns, or narrator descriptions.
 - species: If mentioned (human, Chelgrian, Homomdan, Idirian, drone, avatar, etc.) or null
 - affiliation: Culture, Special Circumstances, Elench, etc. if mentioned, or null
 - information: Array of facts observed in THIS chapter:
@@ -54,7 +58,10 @@ Include:
 
 For each ship/Mind provide:
 - name: Full ship name (e.g., "Sleeper Service", "Grey Area", "Falling Outside The Normal Moral Constraints")
-- aliases: Nicknames, shortened names (e.g., "Meatfucker" for Grey Area), or previous names
+- aliases: Other names this ship/Mind is CALLED in the text (empty array if none)
+  STRICT: Only include terms that appear VERBATIM as proper names for this ship/Mind.
+  Include: nicknames ("Meatfucker"), shortened names, previous names, designations.
+  EXCLUDE: generic references ("the ship", "the vessel") unless used as an official name.
 - class: Ship class if mentioned (GSV, GCU, ROU, LOU, Plate class, etc.) or null
 - affiliation: Culture, Elench, Affront, etc. or null
 - status: Active, destroyed, sublimed, eccentric, etc. if mentioned or null
@@ -77,7 +84,8 @@ Include:
 
 For each location provide:
 - name: Primary name
-- aliases: Other names or designations
+- aliases: Other names/designations this location is CALLED in the text (empty array if none)
+  Only include terms that appear VERBATIM as proper names for this location.
 - type: Orbital, planet, GSV interior, Hub, airsphere, etc. or null
 - affiliation: Who controls/inhabits it if mentioned
 - information: Array of facts:
@@ -99,7 +107,8 @@ Include:
 
 For each technology provide:
 - name: What it's called
-- aliases: Other names or colloquial terms
+- aliases: Other names this technology is CALLED in the text (empty array if none)
+  Only include terms that appear VERBATIM as proper names for this technology.
 - category: Weapon, implant, ship system, communication, tool, etc.
 - information: Array of facts:
   - fact: What it does, how it works, what happens when used
@@ -119,7 +128,8 @@ Include:
 
 For each faction provide:
 - name: Primary name
-- aliases: Other names or shortened versions
+- aliases: Other names this faction/group is CALLED in the text (empty array if none)
+  Only include terms that appear VERBATIM as proper names for this faction.
 - type: Civilization, division, organization, informal group, etc.
 - information: Array of facts:
   - fact: Characteristic, belief, action, relationship to other factions
@@ -139,7 +149,8 @@ Include:
 
 For each event provide:
 - name: Descriptive name or title if given
-- aliases: Other ways it's referred to
+- aliases: Other names this event is CALLED in the text (empty array if none)
+  Only include terms that appear VERBATIM as proper names for this event.
 - timeframe: When it occurred relative to narrative (current, "300 years ago", during Idiran War) if mentioned
 - participants: Who was involved if mentioned
 - information: Array of facts:

@@ -16,10 +16,69 @@ from .utils import read_json, slugify, utc_now, write_json
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are writing a wiki article for a Culture series encyclopedia. Write in an encyclopedic tone. EVERY factual claim must have an inline citation in the format [N] where N is the citation number. Use ONLY the provided facts and quotes. Do not add information that is not present in the sources."""
+SYSTEM_PROMPT = SYSTEM_PROMPT = """You are writing a comprehensive wiki article for a Culture series encyclopedia. 
+
+CRITICAL REQUIREMENT:
+You MUST include EVERY fact provided below. Do not skip, summarize, or editorially select facts.
+The extraction stage has already determined what is significant. Your job is to weave ALL provided 
+facts into a coherent article, not to judge what's important.
+
+WRITING GUIDELINES:
+- Write in an engaging, encyclopedic style that captures the drama and nuance of the source material
+- EVERY factual claim must have an inline citation in the format [N] where N is the citation number
+- Use ONLY the provided facts and quotes—do not add information not present in the sources
+- Include ALL facts provided, even if they seem minor or repetitive
+- Write in flowing prose, not bullet points
+- Let the article length be determined by the facts—do not compress to hit a word target
+
+STRUCTURE REQUIREMENTS:
+For characters, include sections covering (where applicable):
+- Background and origins
+- Physical description and distinguishing traits  
+- Personality and psychology
+- Key relationships (with specific details about each)
+- Chronological narrative of their role in events
+- Notable quotes or memorable moments
+- Fate/outcome
+
+For ships and Minds, include:
+- Class, designation, and physical description
+- Personality and behavioral traits
+- Role in events (chronologically)
+- Relationships with other entities
+- Notable actions or decisions
+
+For locations, include:
+- Physical description and geography
+- Significance in the narrative
+- Events that took place there
+- Who inhabits or visits the location
+
+For technology, include:
+- Description and function
+- How it's used in the narrative
+- Who uses it and in what context
+
+For factions, include:
+- Overview and philosophy
+- Key members or representatives
+- Role in events
+- Relationships with other factions
+
+For events, include:
+- Chronological narrative of what happened
+- Key participants
+- Causes and consequences
+- Significance in the broader context
+
+CITATION RULES:
+- Cite liberally—almost every sentence should have at least one citation
+- Group related citations: [1][2] or [1,2] for claims supported by multiple sources
+- Prefer direct quotes for dramatic or significant moments
+- You should have roughly as many citations as facts provided"""
 
 CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
-
+CHUNK_ID_PATTERN = re.compile(r"([a-z0-9-]+_ch\d{3}(?:_p\d{2})?)")
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
     base_dir = config.EXTRACTIONS_DIR / entity_type
@@ -86,6 +145,83 @@ def _extract_citation_ids(text: str) -> set[int]:
     return ids
 
 
+# Minimum citation rate (citations per sentence) to accept an article
+MIN_CITATION_RATE = 0.5  # At least 50% of sentences should have citations
+
+def _count_sentences(text: str) -> int:
+    """Count approximate number of sentences in text."""
+    if not text:
+        return 0
+    # Simple sentence counting: split on .!? followed by space or end
+    import re
+    sentences = re.split(r'[.!?]+(?:\s|$)', text)
+    return len([s for s in sentences if s.strip()])
+
+
+def _count_citations_in_text(text: str) -> int:
+    """Count number of citation markers [N] in text."""
+    return len(CITATION_PATTERN.findall(text or ""))
+
+
+def _check_citation_density(summary: str, sections: List, entity_name: str) -> bool:
+    """
+    Check if article has sufficient citation density.
+    Returns True if OK, False if too few citations.
+    """
+    total_sentences = _count_sentences(summary)
+    total_citations = _count_citations_in_text(summary)
+    
+    for section in sections:
+        content = getattr(section, 'content', '') or section.get('content', '')
+        total_sentences += _count_sentences(content)
+        total_citations += _count_citations_in_text(content)
+    
+    if total_sentences == 0:
+        return True  # Edge case
+    
+    citation_rate = total_citations / total_sentences
+    
+    if citation_rate < MIN_CITATION_RATE:
+        logger.warning(
+            "Low citation density for %s: %d citations / %d sentences = %.1f%% (min: %.0f%%)",
+            entity_name,
+            total_citations,
+            total_sentences,
+            citation_rate * 100,
+            MIN_CITATION_RATE * 100,
+        )
+        return False
+    
+    return True
+
+
+def _normalize_chunk_id(raw: str | None) -> str:
+    if not raw:
+        return ""
+    cleaned = raw.strip().lower()
+    match = CHUNK_ID_PATTERN.search(cleaned)
+    if match:
+        return match.group(1)
+    return cleaned
+
+
+def _base_chunk_id(chunk_id: str) -> str:
+    if not chunk_id:
+        return ""
+    return chunk_id.split("_p", 1)[0]
+
+
+def _compute_prominence_score(citations: List[Citation], related: List[str]) -> int:
+    unique_chapters = {
+        _base_chunk_id(c.chunk_id) for c in citations if getattr(c, "chunk_id", None)
+    }
+    unique_chapter_count = len({c for c in unique_chapters if c})
+    citation_count = len(citations)
+    related_set = {name.strip().lower() for name in related if name and name.strip()}
+    cross_reference_count = len(related_set)
+    return unique_chapter_count * 10 + citation_count + cross_reference_count
+
+
 def _format_extractions_for_prompt(
     pairs: List[Tuple[EntityExtraction, Dict]],
     chunk_map: Dict[str, Chapter],
@@ -122,21 +258,30 @@ def build_synthesis_prompt(
     merged: MergedEntity, entity_type: str, formatted_extractions: str
 ) -> str:
     appears_in = ", ".join(merged.appears_in)
+    aliases_str = ", ".join(merged.aliases) if merged.aliases else "None"
+    
+    # Count facts for reference
+    fact_count = formatted_extractions.count("• Fact:")
+
     return f"""{SYSTEM_PROMPT}
 
-USER: Write a wiki article for: {merged.canonical_name}
-Type: {entity_type}
-Appears in: {appears_in}
+ENTITY DETAILS:
+- Name: {merged.canonical_name}
+- Also known as: {aliases_str}
+- Type: {entity_type}
+- Appears in: {appears_in}
+- Facts provided: {fact_count} (you must use ALL of them)
 
-EXTRACTED INFORMATION:
+EXTRACTED INFORMATION (use ALL of this):
 {formatted_extractions}
 
 Return a JSON object with:
-- summary
-- sections: array of objects with title and content (with [N] inline citations)
-- citations: array of objects with fields id, book, chapter (optional), quote, chunk_id
-- related_entities: optional array of related entity names
-"""
+- summary: A compelling 2-3 sentence overview of the entity
+- sections: Array of objects with "title" and "content" (with [N] inline citations throughout). Include 4-8 sections for major entities.
+- citations: Array of objects with fields: id (integer), book, chapter (optional), quote (COPY EXACTLY from the Quote field above - do not paraphrase), chunk_id (copy from Source chunk ID above)
+- related_entities: Array of names of other entities mentioned (for cross-linking)
+
+CRITICAL: For each citation, the "quote" field must be copied EXACTLY from the provided quotes above. Do not paraphrase or generate new quotes."""
 
 
 def _build_chunk_context_map() -> Dict[str, Chapter]:
@@ -218,13 +363,16 @@ def synthesize_articles(
                         item,
                     )
                     continue
-                chunk_id = item.get("chunk_id")
+                raw_chunk_id = item.get("chunk_id")
+                chunk_id = _normalize_chunk_id(
+                    str(raw_chunk_id) if raw_chunk_id is not None else ""
+                )
                 chapter = chunk_map.get(chunk_id)
                 if chapter is None:
                     logger.warning(
                         "Unknown chunk_id for citation in %s: %r",
                         merged.canonical_name,
-                        chunk_id,
+                        raw_chunk_id,
                     )
                     continue
                 quote = str(item.get("quote", "")).strip()
@@ -237,6 +385,7 @@ def synthesize_articles(
                     continue
                 item = {
                     **item,
+                    "chunk_id": chunk_id,
                     "source_file": chapter.source_file,
                     "chapter": chapter.title,
                     "book": chapter.book_title,
@@ -246,6 +395,10 @@ def synthesize_articles(
             sections = [
                 ArticleSection(**section) for section in payload.get("sections", [])
             ]
+            related_entities = payload.get("related_entities", []) or []
+            if not isinstance(related_entities, list):
+                related_entities = []
+            prominence_score = _compute_prominence_score(citations, related_entities)
             article = Article(
                 entity_name=merged.canonical_name,
                 entity_type=entity_type.rstrip("s"),
@@ -255,7 +408,8 @@ def synthesize_articles(
                 summary=payload.get("summary", ""),
                 sections=sections,
                 citations=citations,
-                related_entities=payload.get("related_entities", []),
+                related_entities=related_entities,
+                prominence_score=prominence_score,
                 generated_at=utc_now(),
             )
             cited_ids = set(c.id for c in citations)
@@ -269,6 +423,16 @@ def synthesize_articles(
                     "Missing citations for %s; skipping article. Missing ids: %s",
                     merged.canonical_name,
                     missing,
+                )
+                if force and outfile.exists():
+                    outfile.unlink()
+                return
+
+            # Check citation density - reject articles with too few citations
+            if not _check_citation_density(article.summary, sections, merged.canonical_name):
+                logger.warning(
+                    "Skipping article for %s due to low citation density",
+                    merged.canonical_name,
                 )
                 if force and outfile.exists():
                     outfile.unlink()

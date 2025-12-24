@@ -12,7 +12,7 @@
         <p class="article-aliases">
             Also known as:
             {% for alias in article.aliases %}
-                <span class="alias">{{ alias }}</span>{% if not loop.last %}, {% endif %}
+            <span class="alias">{{ alias }}</span>{% if not loop.last %}, {% endif %}
             {% endfor %}
         </p>
         {% endif %}
@@ -21,7 +21,7 @@
         <p class="article-appearances">
             Appears in:
             {% for book in article.appears_in %}
-                <span class="book-tag">{{ book }}</span>
+            <span class="book-tag">{{ book }}</span>
             {% endfor %}
         </p>
         {% endif %}
@@ -54,9 +54,10 @@
     {% if article.citations %}
     <section class="article-references">
         <h2>References</h2>
-        <ol class="references-list">
+        <ul class="references-list">
             {% for citation in article.citations %}
             <li id="cite-{{ citation.id }}" class="reference-item">
+                <span class="reference-number">[{{ citation.id }}]</span>
                 <div class="reference-book">
                     {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
                 </div>
@@ -64,14 +65,14 @@
                 <div class="reference-meta">
                     Source:
                     {% if citation.source_file %}
-                        {{ citation.source_file }}; {{ citation.chunk_id }}
+                    {{ citation.source_file }}; {{ citation.chunk_id }}
                     {% else %}
-                        {{ citation.chunk_id }}
+                    {{ citation.chunk_id }}
                     {% endif %}
                 </div>
             </li>
             {% endfor %}
-        </ol>
+        </ul>
     </section>
     {% endif %}
 
@@ -80,7 +81,8 @@
         <div class="related-title">Related</div>
         <div class="related-list">
             {% for related in article.related_entities %}
-            <a class="related-link" href="{{ root_path }}{{ entity_type }}/{{ related | slugify }}.html">{{ related }}</a>
+            <a class="related-link" href="{{ root_path }}{{ entity_type }}/{{ related | slugify }}.html">{{ related
+                }}</a>
             {% endfor %}
         </div>
     </div>

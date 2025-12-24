@@ -54,10 +54,27 @@ def _copy_assets() -> None:
         shutil.copy2(js_src, js_dest)
 
 
+def _move_citations_after_punctuation(text: str) -> str:
+    """Move citation markers from before punctuation to after.
+    
+    Transforms: 'sentence [5].' -> 'sentence.' [5]
+    Handles: .!? followed by citation markers
+    """
+    if not text:
+        return text
+    # Pattern: match citation(s) followed by punctuation
+    # [5]. or [5,6]. or [5][6]. etc
+    pattern = re.compile(r'(\[[\d,\s\]\[]+\])([.!?])')
+    return pattern.sub(r'\2 \1', text)
+
+
 def _link_citations(text: str) -> Markup:
     """Convert [N] markers to clickable citation links."""
     if not text:
         return Markup("")
+    
+    # First, move citations after punctuation
+    text = _move_citations_after_punctuation(text)
 
     def repl(match: re.Match[str]) -> str:
         numbers = [n.strip() for n in match.group(1).split(",") if n.strip()]
@@ -69,13 +86,37 @@ def _link_citations(text: str) -> Markup:
     return Markup(CITATION_PATTERN.sub(repl, text))
 
 
+def _base_chunk_id(chunk_id: str) -> str:
+    if not chunk_id:
+        return ""
+    return chunk_id.split("_p", 1)[0]
+
+
+def _compute_prominence_score(article: Article) -> int:
+    unique_chapters = {
+        _base_chunk_id(c.chunk_id) for c in article.citations if c.chunk_id
+    }
+    unique_chapter_count = len({c for c in unique_chapters if c})
+    citation_count = len(article.citations)
+    related_set = {
+        name.strip().lower() for name in article.related_entities if name and name.strip()
+    }
+    cross_reference_count = len(related_set)
+    return unique_chapter_count * 10 + citation_count + cross_reference_count
+
+
 def _load_articles(entity_type: str) -> List[Article]:
     directory = config.ARTICLES_DIR / entity_type
     if not directory.exists():
         return []
     articles: List[Article] = []
     for path in sorted(directory.glob("*.json")):
-        articles.append(Article(**read_json(path)))
+        article = Article(**read_json(path))
+        article.prominence_score = _compute_prominence_score(article)
+        articles.append(article)
+    articles.sort(
+        key=lambda art: (-art.prominence_score, art.entity_name.lower())
+    )
     return articles
 
 

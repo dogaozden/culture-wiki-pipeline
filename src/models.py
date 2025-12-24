@@ -174,6 +174,7 @@ class Article(BaseModel):
     sections: List[ArticleSection] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
     related_entities: List[str] = Field(default_factory=list)
+    prominence_score: int = 0
 
 
 # Structured output models for synthesis -------------------------------------

@@ -3,13 +3,13 @@
  * Handles hover/click tooltips for inline citations
  */
 
-(function() {
+(function () {
     'use strict';
 
     // ==========================================================================
     // Configuration
     // ==========================================================================
-    
+
     const CONFIG = {
         tooltipOffset: 12,
         hoverDelay: 200,
@@ -19,7 +19,7 @@
     // ==========================================================================
     // State
     // ==========================================================================
-    
+
     let citations = [];
     let tooltip = null;
     let hoverTimeout = null;
@@ -28,11 +28,11 @@
     // ==========================================================================
     // Initialization
     // ==========================================================================
-    
+
     function init() {
         loadCitations();
         tooltip = document.getElementById('citation-tooltip');
-        
+
         if (!tooltip) {
             console.warn('Citation tooltip element not found');
             return;
@@ -59,18 +59,18 @@
     // ==========================================================================
     // Citation Events
     // ==========================================================================
-    
+
     function bindCitationEvents() {
         document.querySelectorAll('.citation-link').forEach(link => {
             const citationId = parseInt(link.dataset.citationId, 10);
-            
+
             // Desktop: hover behavior
             link.addEventListener('mouseenter', (e) => {
                 hoverTimeout = setTimeout(() => {
                     showTooltip(citationId, e.target);
                 }, CONFIG.hoverDelay);
             });
-            
+
             link.addEventListener('mouseleave', () => {
                 clearTimeout(hoverTimeout);
                 // Don't hide if hovering over tooltip itself
@@ -80,18 +80,25 @@
                     }
                 }, 100);
             });
-            
-            // Mobile/Click: toggle behavior
+
+            // Mobile/Click: show tooltip and scroll to reference
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                
-                if (activeLink === link) {
-                    hideTooltip();
-                    activeLink = null;
-                } else {
-                    showTooltip(citationId, e.target);
-                    activeLink = link;
-                }
+
+                // Show tooltip
+                showTooltip(citationId, e.target);
+                activeLink = link;
+
+                // Scroll to the reference after a short delay
+                setTimeout(() => {
+                    const refElement = document.getElementById(`cite-${citationId}`);
+                    if (refElement) {
+                        refElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        // Highlight the reference briefly
+                        refElement.classList.add('highlight');
+                        setTimeout(() => refElement.classList.remove('highlight'), 2000);
+                    }
+                }, 100);
             });
         });
     }
@@ -101,13 +108,13 @@
         tooltip.addEventListener('mouseenter', () => {
             clearTimeout(hoverTimeout);
         });
-        
+
         tooltip.addEventListener('mouseleave', () => {
             if (!activeLink) {
                 hideTooltip();
             }
         });
-        
+
         // Close button
         const closeBtn = tooltip.querySelector('.citation-close');
         if (closeBtn) {
@@ -116,7 +123,7 @@
                 activeLink = null;
             });
         }
-        
+
         // Close on escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -124,10 +131,10 @@
                 activeLink = null;
             }
         });
-        
+
         // Close when clicking outside
         document.addEventListener('click', (e) => {
-            if (!tooltip.contains(e.target) && 
+            if (!tooltip.contains(e.target) &&
                 !e.target.classList.contains('citation-link')) {
                 hideTooltip();
                 activeLink = null;
@@ -138,22 +145,22 @@
     // ==========================================================================
     // Tooltip Display
     // ==========================================================================
-    
+
     function showTooltip(citationId, anchor) {
         const citation = citations.find(c => c.id === citationId);
-        
+
         if (!citation) {
             console.warn('Citation not found:', citationId);
             return;
         }
-        
+
         // Populate content
         tooltip.querySelector('.citation-book').textContent = citation.book;
         tooltip.querySelector('.citation-quote').textContent = `"${citation.quote}"`;
-        
+
         // Position tooltip
         positionTooltip(anchor);
-        
+
         // Show with animation
         tooltip.classList.add('visible');
     }
@@ -167,26 +174,26 @@
         const tooltipRect = tooltip.getBoundingClientRect();
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        
+
         // Default: position below and centered on anchor
         let top = anchorRect.bottom + CONFIG.tooltipOffset;
         let left = anchorRect.left + (anchorRect.width / 2) - (tooltipRect.width / 2);
-        
+
         // Adjust if tooltip would overflow right edge
         if (left + tooltipRect.width > viewportWidth - CONFIG.tooltipOffset) {
             left = viewportWidth - tooltipRect.width - CONFIG.tooltipOffset;
         }
-        
+
         // Adjust if tooltip would overflow left edge
         if (left < CONFIG.tooltipOffset) {
             left = CONFIG.tooltipOffset;
         }
-        
+
         // If tooltip would overflow bottom, show above anchor instead
         if (top + tooltipRect.height > viewportHeight - CONFIG.tooltipOffset) {
             top = anchorRect.top - tooltipRect.height - CONFIG.tooltipOffset;
         }
-        
+
         // Apply position
         tooltip.style.top = `${top}px`;
         tooltip.style.left = `${left}px`;
@@ -195,21 +202,21 @@
     // ==========================================================================
     // Theme Toggle
     // ==========================================================================
-    
+
     function bindThemeToggle() {
         const toggle = document.getElementById('theme-toggle');
         if (!toggle) return;
-        
+
         // Check for saved preference
         const savedTheme = localStorage.getItem('culture-wiki-theme');
         if (savedTheme) {
             document.documentElement.setAttribute('data-theme', savedTheme);
         }
-        
+
         toggle.addEventListener('click', () => {
             const currentTheme = document.documentElement.getAttribute('data-theme');
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
+
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('culture-wiki-theme', newTheme);
         });
@@ -218,21 +225,21 @@
     // ==========================================================================
     // Search (Basic client-side filtering for small wikis)
     // ==========================================================================
-    
+
     function bindSearch() {
         const searchInput = document.getElementById('search-input');
         if (!searchInput) return;
-        
+
         // This is a placeholder for client-side search
         // For a full implementation, you'd want to load a search index
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase().trim();
-            
+
             if (query.length < 2) {
                 // Clear results / reset
                 return;
             }
-            
+
             // TODO: Implement search functionality
             // For now, just log
             console.log('Search query:', query);
@@ -243,7 +250,7 @@
     // Utility: Convert citation markers [N] to clickable links
     // This would typically be done server-side in Python, but here's a JS version
     // ==========================================================================
-    
+
     function processCitationMarkers() {
         document.querySelectorAll('.section-content').forEach(section => {
             section.innerHTML = section.innerHTML.replace(
@@ -258,7 +265,7 @@
     // ==========================================================================
     // Mobile Menu (if needed)
     // ==========================================================================
-    
+
     function bindMobileMenu() {
         // Add a hamburger button for mobile if sidebar is hidden
         if (window.innerWidth <= CONFIG.mobileBreakpoint) {
@@ -271,7 +278,7 @@
                 menuBtn.innerHTML = '☰';
                 menuBtn.setAttribute('aria-label', 'Open menu');
                 document.body.appendChild(menuBtn);
-                
+
                 menuBtn.addEventListener('click', () => {
                     document.querySelector('.sidebar').classList.toggle('open');
                 });
@@ -282,7 +289,7 @@
     // ==========================================================================
     // Initialize on DOM ready
     // ==========================================================================
-    
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
