@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 from . import config
+from .chunker import load_chapters
 from .gemini_client import GeminiClient
 from .models import Article, ArticleSection, Citation, EntityExtraction, MergedEntity
 from .utils import read_json, slugify, utc_now, write_json
@@ -87,12 +88,30 @@ Return a JSON object with:
 """
 
 
+def _build_chunk_source_map() -> Dict[str, str]:
+    source_map: Dict[str, str] = {}
+    if not config.BOOKS_DIR.exists():
+        return source_map
+    for book_dir in config.BOOKS_DIR.iterdir():
+        if not book_dir.is_dir() or book_dir.name.startswith("."):
+            continue
+        try:
+            chapters = load_chapters(book_dir)
+        except Exception as exc:
+            logger.warning("Failed to load chapters for %s: %s", book_dir.name, exc)
+            continue
+        for chapter in chapters:
+            source_map[chapter.chunk_id] = chapter.source_file
+    return source_map
+
+
 def synthesize_articles(
     entity_type: str, client: GeminiClient, force: bool = False
 ) -> None:
     """Generate wiki articles for a specific entity type."""
     merged_entities = _load_merged_entities(entity_type)
     extractions = _load_extractions(entity_type)
+    source_map = _build_chunk_source_map()
     output_dir = config.ARTICLES_DIR / entity_type
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,6 +133,22 @@ def synthesize_articles(
 
         try:
             payload = client.synthesize(prompt, cache_key=cache_key)
+            citations_payload = payload.get("citations", [])
+            citations: List[Citation] = []
+            for item in citations_payload:
+                if not isinstance(item, dict):
+                    logger.warning(
+                        "Skipping malformed citation for %s: %r",
+                        merged.canonical_name,
+                        item,
+                    )
+                    continue
+                chunk_id = item.get("chunk_id")
+                source_file = source_map.get(chunk_id)
+                if source_file and not item.get("source_file"):
+                    item = {**item, "source_file": source_file}
+                citations.append(Citation(**item))
+
             article = Article(
                 entity_name=merged.canonical_name,
                 entity_type=entity_type.rstrip("s"),
@@ -125,7 +160,7 @@ def synthesize_articles(
                     ArticleSection(**section)
                     for section in payload.get("sections", [])
                 ],
-                citations=[Citation(**c) for c in payload.get("citations", [])],
+                citations=citations,
                 related_entities=payload.get("related_entities", []),
                 generated_at=utc_now(),
             )

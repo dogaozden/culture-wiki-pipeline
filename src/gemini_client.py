@@ -52,6 +52,7 @@ class GeminiClient:
         self.max_retries = max_retries
         self.requests_per_minute = requests_per_minute
         self._call_history: list[float] = []
+        self._preflight_done = False
 
     # --- Caching helpers -------------------------------------------------
     def _cache_path(self, namespace: str, key_material: str) -> Path:
@@ -79,6 +80,22 @@ class GeminiClient:
                 logger.debug("Rate limit reached; sleeping for %.2fs", sleep_for)
                 time.sleep(sleep_for)
         self._call_history.append(time.time())
+
+    def preflight(self) -> None:
+        """Validate API key and model access before heavy workloads."""
+        if self._preflight_done:
+            return
+        try:
+            self.client.models.generate_content(
+                model=self.model_name,
+                contents="ping",
+                config={"max_output_tokens": 1},
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Gemini preflight failed. Check GEMINI_API_KEY and model access."
+            ) from exc
+        self._preflight_done = True
 
     # --- Core call helpers -----------------------------------------------
     def _generate_json(

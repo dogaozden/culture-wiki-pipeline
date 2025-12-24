@@ -26,6 +26,7 @@ class Pipeline:
             from .gemini_client import GeminiClient
 
             self._client = GeminiClient()
+            self._client.preflight()
         return self._client
 
     def _discover_books(self) -> List[Path]:

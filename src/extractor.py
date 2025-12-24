@@ -151,17 +151,32 @@ If none found: {"entities": []}""",
 }
 
 
-def _load_chunks(book_slug: str) -> List[Chapter]:
+def _resolve_book_dir(book: str) -> Path:
+    book_path = Path(book)
+    if book_path.exists():
+        return book_path
+
     candidates = [
-        config.BOOKS_DIR / book_slug,
-        config.BOOKS_DIR / slugify(book_slug),
+        config.BOOKS_DIR / book,
+        config.BOOKS_DIR / slugify(book),
     ]
     for path in candidates:
         if path.exists():
-            return load_chapters(path)
+            return path
+
+    slug = slugify(book)
+    for path in config.BOOKS_DIR.iterdir():
+        if path.is_dir() and slugify(path.name) == slug:
+            return path
+
     raise FileNotFoundError(
-        f"Book directory not found for '{book_slug}'. Looked in {candidates}"
+        f"Book directory not found for '{book}'. Looked in {candidates}"
     )
+
+
+def _load_chunks(book: str) -> List[Chapter]:
+    book_dir = _resolve_book_dir(book)
+    return load_chapters(book_dir)
 
 
 def build_extraction_prompt(entity_type: str, chunk: Chapter) -> str:
@@ -209,9 +224,12 @@ def extract_entities_for_book(
     """Run extraction for all chunks in a book."""
     book_slug = slugify(book)
     entity_types = list(entity_types or config.ENTITY_TYPES)
-    chunks = _load_chunks(book_slug)
+    chunks = _load_chunks(book)
     if limit is not None:
         chunks = chunks[:limit]
+    if not chunks:
+        logger.info("No chapters found for %s; skipping extraction", book_slug)
+        return
 
     if dry_run:
         if not chunks:

@@ -61,7 +61,14 @@
                     {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
                 </div>
                 <div class="reference-quote">“{{ citation.quote }}”</div>
-                <div class="reference-meta">Source: {{ citation.chunk_id }}</div>
+                <div class="reference-meta">
+                    Source:
+                    {% if citation.source_file %}
+                        {{ citation.source_file }}; {{ citation.chunk_id }}
+                    {% else %}
+                        {{ citation.chunk_id }}
+                    {% endif %}
+                </div>
             </li>
             {% endfor %}
         </ol>
@@ -90,4 +97,3 @@
 {{ citations_json }}
 </script>
 {% endblock %}
-

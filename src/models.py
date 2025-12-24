@@ -144,6 +144,7 @@ class Citation(BaseModel):
     quote: str
     chunk_id: str
     chapter: Optional[str] = None
+    source_file: Optional[str] = None
 
 
 @datamodel
@@ -196,6 +197,9 @@ class SynthesisCitation(BaseModel):
     chunk_id: str = Field(description="Chunk id containing the quote")
     chapter: Optional[str] = Field(
         default=None, description="Chapter title if available"
+    )
+    source_file: Optional[str] = Field(
+        default=None, description="Original source filename if available"
     )
 
 
