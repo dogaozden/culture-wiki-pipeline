@@ -1,0 +1,2 @@
+"""Culture Wiki package initialization."""
+

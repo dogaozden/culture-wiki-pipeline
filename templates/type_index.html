@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="index-header">
+    <h1>{{ title }}</h1>
+    <p>Browse {{ articles|length }} {{ entity_type.replace('_', ' ') }}</p>
+</div>
+
+{% if articles %}
+<div class="entity-grid">
+    {% for article in articles %}
+    <a class="entity-card" href="{{ root_path }}{{ entity_type }}/{{ article.slug }}.html">
+        <h3>{{ article.entity_name }}</h3>
+        <p>{{ article.summary }}</p>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<p>No articles available yet.</p>
+{% endif %}
+{% endblock %}
+

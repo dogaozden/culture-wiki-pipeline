@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Culture Wiki{% endblock %}
+
+{% block content %}
+<div class="index-header">
+    <h1>Culture Wiki</h1>
+    <p>LLM-generated encyclopedia for Iain M. Banks' Culture series.</p>
+</div>
+
+<div class="entity-grid">
+    {% for section in sections %}
+    <a class="entity-card" href="{{ root_path }}{{ section.type }}/index.html">
+        <h3>{{ section.type.replace('_', ' ') | title }} ({{ section.count }})</h3>
+        <p>
+            {% if section.articles %}
+                {{ section.articles[0].summary }}
+            {% else %}
+                No articles generated yet.
+            {% endif %}
+        </p>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}
+

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.entity_name }}{% endblock %}
+
+{% block content %}
+<article class="wiki-article">
+    <header class="article-header">
+        <span class="article-type-badge">{{ article.entity_type.replace('_', ' ') | title }}</span>
+        <h1 class="article-title">{{ article.entity_name }}</h1>
+
+        {% if article.aliases %}
+        <p class="article-aliases">
+            Also known as:
+            {% for alias in article.aliases %}
+                <span class="alias">{{ alias }}</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </p>
+        {% endif %}
+
+        {% if article.appears_in %}
+        <p class="article-appearances">
+            Appears in:
+            {% for book in article.appears_in %}
+                <span class="book-tag">{{ book }}</span>
+            {% endfor %}
+        </p>
+        {% endif %}
+    </header>
+
+    {% if article.summary %}
+    <p class="article-summary">{{ article.summary | citations }}</p>
+    {% endif %}
+
+    {% if article.sections %}
+    <div class="article-toc">
+        <div class="toc-title">In this article</div>
+        <ul class="toc-list">
+            {% for section in article.sections %}
+            <li><a href="#section-{{ loop.index }}">{{ section.title }}</a></li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    {% for section in article.sections %}
+    <section id="section-{{ loop.index }}" class="article-section">
+        <h2>{{ section.title }}</h2>
+        <div class="section-content">
+            {{ section.content | citations }}
+        </div>
+    </section>
+    {% endfor %}
+    {% endif %}
+
+    {% if article.citations %}
+    <section class="article-references">
+        <h2>References</h2>
+        <ol class="references-list">
+            {% for citation in article.citations %}
+            <li id="cite-{{ citation.id }}" class="reference-item">
+                <div class="reference-book">
+                    {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
+                </div>
+                <div class="reference-quote">“{{ citation.quote }}”</div>
+                <div class="reference-meta">Source: {{ citation.chunk_id }}</div>
+            </li>
+            {% endfor %}
+        </ol>
+    </section>
+    {% endif %}
+
+    {% if article.related_entities %}
+    <div class="related">
+        <div class="related-title">Related</div>
+        <div class="related-list">
+            {% for related in article.related_entities %}
+            <a class="related-link" href="{{ root_path }}{{ entity_type }}/{{ related | slugify }}.html">{{ related }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="article-meta">
+        Generated at {{ article.generated_at }}
+    </div>
+</article>
+{% endblock %}
+
+{% block citations_data %}
+<script id="citations-data" type="application/json">
+{{ citations_json }}
+</script>
+{% endblock %}
+
