@@ -56,6 +56,18 @@ For each character provide:
 
 - species: If mentioned (human, Chelgrian, Homomdan, Idirian, drone, avatar, etc.) or null
 - affiliation: Culture, Special Circumstances, Elench, etc. if mentioned, or null
+- prominence: How significant is this character IN THIS CHAPTER?
+  - "major": Central to the chapter, has dialogue/action, POV character
+  - "supporting": Appears and interacts but not central
+  - "mentioned": Only referenced/talked about, doesn't appear directly
+- prominence_score: Numeric score 1-10 for this chapter (10=POV character, 7-9=major, 4-6=supporting, 1-3=mentioned)
+
+- relationships: Array of connections to OTHER entities observed in THIS chapter (empty if none)
+  - target: Name of the other entity (character, ship, faction, etc.)
+  - type: Nature of relationship ("serves on", "loves", "works for", "enemy of", "child of", etc.)
+  - strength: Intensity/importance of relationship 1-10 (10=central conflict/love, 5=working relationship, 1=acquaintance)
+  - quote: EXACT text evidence (20-50 words)
+
 - information: Array of facts observed in THIS chapter:
   - fact: One specific observation (role, action, relationship, trait, appearance)
   - quote: EXACT verbatim text supporting this (20-100 words, complete sentences)
@@ -92,6 +104,18 @@ For each ship/Mind provide:
 - class: Ship class if mentioned (GSV, GCU, ROU, LOU, Plate class, etc.) or null
 - affiliation: Culture, Elench, Affront, etc. or null
 - status: Active, destroyed, sublimed, eccentric, etc. if mentioned or null
+- prominence: How significant is this ship IN THIS CHAPTER?
+  - "major": Central to events, has extensive description or communication
+  - "supporting": Appears/acts but not central
+  - "mentioned": Only referenced by name or in passing
+- prominence_score: Numeric score 1-10 for this chapter (10=main POV ship, 7-9=major, 4-6=supporting, 1-3=mentioned)
+
+- relationships: Array of connections to OTHER entities in THIS chapter (empty if none)
+  - target: Name of the other entity
+  - type: "carries", "communicates with", "allied with", "attacks", "part of fleet", etc.
+  - strength: Intensity 1-10 (10=central conflict, 5=regular interaction, 1=passing mention)
+  - quote: EXACT text evidence (20-50 words)
+
 - information: Array of facts:
   - fact: One observation (action, personality trait, capability, history)
   - quote: EXACT verbatim text (20-100 words, complete sentences)
@@ -104,17 +128,33 @@ If none found: {"entities": []}""",
 Include:
 - Orbitals (name them specifically)
 - Planets and moons
-- Ships when used as settings (not as characters)
-- Specific places within ships/Orbitals (bays, sections, habitats)
+- Ships when used as SETTINGS (where events happen, not as characters)
+- Specific NAMED places within ships/Orbitals (bays, towers, habitats)
 - Star systems, nebulae, regions of space
 - Airspheres, Rocks, Shellworlds
 
+Do NOT extract generic/unnamed locations like "the corridor", "a room", "the bay".
+
 For each location provide:
-- name: Primary name
-- aliases: Other names/designations this location is CALLED in the text (empty array if none)
-  Only include terms that appear VERBATIM as proper names for this location.
-- type: Orbital, planet, GSV interior, Hub, airsphere, etc. or null
+- name: Primary name (must be a proper name, not a generic description)
+- aliases: Other names this SAME location is CALLED in the text (empty array if none)
+
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly identifies it as an alternate name
+  ✓ It's an abbreviated form of the same place
+  
+  NEVER include as aliases:
+  ✗ Generic descriptions ("the tower", "the orbital")
+  ✗ Different locations that are nearby
+  ✗ Ship names when the ship is just docked there
+
+- type: Orbital, planet, GSV interior, Hub, airsphere, habitat, etc. or null
 - affiliation: Who controls/inhabits it if mentioned
+- prominence: How significant is this location IN THIS CHAPTER?
+  - "major": Primary setting, extensively described
+  - "supporting": Scene takes place here briefly
+  - "mentioned": Only referenced, not a setting
+
 - information: Array of facts:
   - fact: One observation (description, what happens there, characteristics)
   - quote: EXACT verbatim text (20-100 words, complete sentences)
@@ -122,21 +162,38 @@ For each location provide:
 
 Return JSON: {"entities": [...]}
 If none found: {"entities": []}""",
-    "technology": """Extract all TECHNOLOGY and DEVICES mentioned in this chapter.
+    "technology": """Extract NAMED or SIGNIFICANT TECHNOLOGY mentioned in this chapter.
 
 Include:
-- Weapons (knife missiles, effectors, gridfire, CAM, etc.)
-- Tools and devices (terminals, gelfield, displacers, etc.)
+- Named weapons (knife missiles, effectors, gridfire, CAM, Lazy guns, etc.)
+- Specific devices with names or unique description
 - Implants and augmentations (neural lace, drug glands, etc.)
-- Ship systems and capabilities
-- Communication technology (tight-beam, hyperspace relays)
-- Anything technological that gets described or used
+- Named ship systems or capabilities
+- Communication tech (tight-beam, hyperspace relays)
+
+Do NOT extract:
+- Generic technology ("a weapon", "the computer", "a tool")
+- Everyday items unless they have Culture-specific names
+- Technology only mentioned in passing without description
 
 For each technology provide:
-- name: What it's called
-- aliases: Other names this technology is CALLED in the text (empty array if none)
-  Only include terms that appear VERBATIM as proper names for this technology.
+- name: The specific name used (must be a proper name or Culture-specific term)
+- aliases: Other names this SAME technology is CALLED in the text (empty array if none)
+
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly identifies it as an alternate name
+  ✓ It's an abbreviated form of the same tech
+  
+  NEVER include as aliases:
+  ✗ Generic descriptions ("the device", "the weapon")
+  ✗ Different but related technologies
+
 - category: Weapon, implant, ship system, communication, tool, etc.
+- prominence: How significant is this tech IN THIS CHAPTER?
+  - "major": Extensively described or central to plot
+  - "supporting": Used or mentioned with some detail
+  - "mentioned": Only named in passing
+
 - information: Array of facts:
   - fact: What it does, how it works, what happens when used
   - quote: EXACT verbatim text (20-100 words, complete sentences)
@@ -155,9 +212,30 @@ Include:
 
 For each faction provide:
 - name: Primary name
-- aliases: Other names this faction/group is CALLED in the text (empty array if none)
-  Only include terms that appear VERBATIM as proper names for this faction.
+- aliases: Other names this SAME faction is CALLED in the text (empty array if none)
+
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly identifies it as an alternate name
+  ✓ It's an abbreviated or formal variant
+  
+  NEVER include as aliases:
+  ✗ Subgroups (Special Circumstances is NOT an alias of The Culture)
+  ✗ Member names or ships belonging to the faction
+  ✗ Generic descriptions ("the aliens", "the enemy")
+
 - type: Civilization, division, organization, informal group, etc.
+- prominence: How significant is this faction IN THIS CHAPTER?
+  - "major": Central to plot, extensively discussed
+  - "supporting": Involved but not central
+  - "mentioned": Only referenced in passing
+- prominence_score: Numeric score 1-10 for this chapter (10=central faction, 7-9=major, 4-6=supporting, 1-3=mentioned)
+
+- relationships: Array of connections to OTHER factions in THIS chapter (empty if none)
+  - target: Name of the other faction
+  - type: "allied with", "at war with", "part of", "opposes", etc.
+  - strength: Intensity 1-10 (10=open war/deep alliance, 5=diplomatic tension, 1=passing mention)
+  - quote: EXACT text evidence (20-50 words)
+
 - information: Array of facts:
   - fact: Characteristic, belief, action, relationship to other factions
   - quote: EXACT verbatim text (20-100 words, complete sentences)
@@ -165,21 +243,37 @@ For each faction provide:
 
 Return JSON: {"entities": [...]}
 If none found: {"entities": []}""",
-    "events": """Extract all EVENTS and INCIDENTS mentioned in this chapter.
+    "events": """Extract NAMED EVENTS and SIGNIFICANT INCIDENTS mentioned in this chapter.
 
 Include:
-- Current events happening in the narrative
-- Historical events referenced (Idiran War, etc.)
-- Battles, missions, diplomatic incidents
-- Personal events (deaths, meetings, discoveries)
-- Political events (treaties, conflicts, first contacts)
+- Named historical events (Idiran War, the Subliming, etc.)
+- Named missions or operations
+- Significant battles or conflicts with names or clear identity
+- Major plot events that are given titles or names
+
+Do NOT extract:
+- Generic actions ("a meeting", "a battle", "a conversation")
+- Everyday occurrences without significance
+- Vague references without specifics
 
 For each event provide:
-- name: Descriptive name or title if given
-- aliases: Other names this event is CALLED in the text (empty array if none)
-  Only include terms that appear VERBATIM as proper names for this event.
-- timeframe: When it occurred relative to narrative (current, "300 years ago", during Idiran War) if mentioned
-- participants: Who was involved if mentioned
+- name: The event's name or a descriptive title (prefer named events)
+- aliases: Other names this SAME event is CALLED in the text (empty array if none)
+
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly identifies it as an alternate name
+  
+  NEVER include as aliases:
+  ✗ Related but different events
+  ✗ Generic descriptions
+
+- timeframe: When it occurred relative to narrative (current, "300 years ago", during Idiran War) if mentioned, or null
+- participants: Key entities involved if mentioned (array of names), or null
+- prominence: How significant is this event IN THIS CHAPTER?
+  - "major": Central to the chapter's plot
+  - "supporting": Discussed with context
+  - "mentioned": Only referenced briefly
+
 - information: Array of facts:
   - fact: What happened, outcome, significance
   - quote: EXACT verbatim text (20-100 words, complete sentences)

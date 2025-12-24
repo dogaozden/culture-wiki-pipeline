@@ -97,6 +97,18 @@ class EntityFact(BaseModel):
 
 
 @datamodel
+class EntityRelationship(BaseModel):
+    """A relationship between entities."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    target: str
+    type: str
+    strength: Optional[int] = None  # 1-10 intensity score
+    quote: Optional[str] = None
+
+
+@datamodel
 class Entity(BaseModel):
     """Entity with aliases and cited facts."""
 
@@ -106,6 +118,9 @@ class Entity(BaseModel):
     aliases: List[str] = Field(default_factory=list)
     species: Optional[str] = None
     affiliation: Optional[str] = None
+    prominence: Optional[str] = None  # "major", "supporting", "mentioned"
+    prominence_score: Optional[int] = None  # 1-10 numeric score
+    relationships: List[EntityRelationship] = Field(default_factory=list)
     information: List[EntityFact] = Field(default_factory=list)
 
 
@@ -225,9 +240,17 @@ class SynthesisResponse(BaseModel):
 class FactInfo(BaseModel):
     fact: str = Field(description="One specific observation about this entity")
     quote: str = Field(
-        description="EXACT verbatim text from the passage (10-50 words)"
+        description="EXACT verbatim text from the passage (20-100 words, complete sentences)"
     )
     location: str = Field(description="Brief context: 'dialogue', 'narration', etc.")
+
+
+@datamodel
+class ExtractedRelationship(BaseModel):
+    target: str = Field(description="Name of the related entity")
+    type: str = Field(description="Nature of relationship")
+    strength: Optional[int] = Field(default=None, description="Intensity 1-10")
+    quote: Optional[str] = Field(default=None, description="Supporting quote")
 
 
 @datamodel
@@ -240,6 +263,15 @@ class ExtractedEntity(BaseModel):
     species: Optional[str] = Field(default=None, description="Species if mentioned")
     affiliation: Optional[str] = Field(
         default=None, description="Faction/organization if mentioned"
+    )
+    prominence: Optional[str] = Field(
+        default=None, description="How significant: major, supporting, mentioned"
+    )
+    prominence_score: Optional[int] = Field(
+        default=None, description="Numeric score 1-10"
+    )
+    relationships: List[ExtractedRelationship] = Field(
+        default_factory=list, description="Connections to other entities"
     )
 
 
