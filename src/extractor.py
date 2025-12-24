@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -248,35 +249,57 @@ def extract_entities_for_book(
     if client is None:
         raise RuntimeError("Gemini client is required for extraction unless --dry-run is used.")
 
-    for entity_type in entity_types:
+    def _extract_one(entity_type: str, chunk: Chapter) -> None:
         output_dir = ensure_dir(config.EXTRACTIONS_DIR / entity_type / book_slug)
-        for chunk in chunks:
-            outfile = output_dir / f"{chunk.chunk_id}_{entity_type}.json"
-            if outfile.exists() and not force:
-                logger.info(
-                    "Skipping %s (%s) — already extracted", chunk.chunk_id, entity_type
-                )
-                continue
+        outfile = output_dir / f"{chunk.chunk_id}_{entity_type}.json"
+        if outfile.exists() and not force:
+            logger.info(
+                "Skipping %s (%s) — already extracted", chunk.chunk_id, entity_type
+            )
+            return
 
-            prompt = build_extraction_prompt(entity_type, chunk)
-            cache_key = f"{chunk.chunk_id}:{entity_type}"
-            try:
-                payload = client.extract(prompt, cache_key=cache_key)
-                _write_extraction(chunk, entity_type, output_dir, payload)
-                logger.info(
-                    "Extracted %s for %s (%s)", entity_type, chunk.chunk_id, chunk.title
-                )
-            except ValueError as exc:
+        prompt = build_extraction_prompt(entity_type, chunk)
+        cache_key = f"{chunk.chunk_id}:{entity_type}"
+        try:
+            payload = client.extract(prompt, cache_key=cache_key)
+            _write_extraction(chunk, entity_type, output_dir, payload)
+            logger.info(
+                "Extracted %s for %s (%s)", entity_type, chunk.chunk_id, chunk.title
+            )
+        except ValueError as exc:
+            logger.error(
+                "Malformed JSON for %s (%s); skipping. Error: %s",
+                chunk.chunk_id,
+                entity_type,
+                exc,
+            )
+        except Exception as exc:
+            logger.error(
+                "Extraction failed for %s (%s): %s", chunk.chunk_id, entity_type, exc
+            )
+            if force:
+                raise
+
+    tasks = [(entity_type, chunk) for entity_type in entity_types for chunk in chunks]
+    if config.PARALLEL_WORKERS <= 1:
+        for entity_type, chunk in tasks:
+            _extract_one(entity_type, chunk)
+        return
+
+    with ThreadPoolExecutor(max_workers=config.PARALLEL_WORKERS) as executor:
+        futures = {
+            executor.submit(_extract_one, entity_type, chunk): (entity_type, chunk)
+            for entity_type, chunk in tasks
+        }
+        for future in as_completed(futures):
+            exc = future.exception()
+            if exc:
+                entity_type, chunk = futures[future]
                 logger.error(
-                    "Malformed JSON for %s (%s); skipping. Error: %s",
+                    "Extraction worker failed for %s (%s): %s",
                     chunk.chunk_id,
                     entity_type,
                     exc,
                 )
-                continue
-            except Exception as exc:
-                logger.error(
-                    "Extraction failed for %s (%s): %s", chunk.chunk_id, entity_type, exc
-                )
                 if force:
-                    raise
+                    raise exc

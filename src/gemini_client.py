@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -53,6 +54,8 @@ class GeminiClient:
         self.requests_per_minute = requests_per_minute
         self._call_history: list[float] = []
         self._preflight_done = False
+        self._rate_lock = threading.Lock()
+        self._preflight_lock = threading.Lock()
 
     # --- Caching helpers -------------------------------------------------
     def _cache_path(self, namespace: str, key_material: str) -> Path:
@@ -70,32 +73,44 @@ class GeminiClient:
 
     # --- Rate limiting ---------------------------------------------------
     def _respect_rate_limit(self) -> None:
-        now = time.time()
-        window_start = now - 60
-        self._call_history = [t for t in self._call_history if t >= window_start]
-        if len(self._call_history) >= self.requests_per_minute:
-            sleep_for = 60 - (now - self._call_history[0])
-            sleep_for = max(0, sleep_for)
-            if sleep_for:
-                logger.debug("Rate limit reached; sleeping for %.2fs", sleep_for)
-                time.sleep(sleep_for)
-        self._call_history.append(time.time())
+        sleep_for = 0.0
+        with self._rate_lock:
+            now = time.time()
+            window_start = now - 60
+            self._call_history = [t for t in self._call_history if t >= window_start]
+            if len(self._call_history) >= self.requests_per_minute:
+                sleep_for = 60 - (now - self._call_history[0])
+                sleep_for = max(0, sleep_for)
+            else:
+                self._call_history.append(now)
+                return
+
+        if sleep_for:
+            logger.debug("Rate limit reached; sleeping for %.2fs", sleep_for)
+            time.sleep(sleep_for)
+
+        with self._rate_lock:
+            now = time.time()
+            window_start = now - 60
+            self._call_history = [t for t in self._call_history if t >= window_start]
+            self._call_history.append(now)
 
     def preflight(self) -> None:
         """Validate API key and model access before heavy workloads."""
-        if self._preflight_done:
-            return
-        try:
-            self.client.models.generate_content(
-                model=self.model_name,
-                contents="ping",
-                config={"max_output_tokens": 1},
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "Gemini preflight failed. Check GEMINI_API_KEY and model access."
-            ) from exc
-        self._preflight_done = True
+        with self._preflight_lock:
+            if self._preflight_done:
+                return
+            try:
+                self.client.models.generate_content(
+                    model=self.model_name,
+                    contents="ping",
+                    config={"max_output_tokens": 1},
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "Gemini preflight failed. Check GEMINI_API_KEY and model access."
+                ) from exc
+            self._preflight_done = True
 
     # --- Core call helpers -----------------------------------------------
     def _generate_json(

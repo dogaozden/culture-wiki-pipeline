@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -115,17 +116,27 @@ def synthesize_articles(
     output_dir = config.ARTICLES_DIR / entity_type
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    pending: List[MergedEntity] = []
     for merged in merged_entities:
         slug = slugify(merged.canonical_name)
         outfile = output_dir / f"{slug}.json"
         if outfile.exists() and not force:
             logger.info("Skipping synthesis for %s (cached)", merged.canonical_name)
             continue
+        pending.append(merged)
+
+    if not pending:
+        logger.info("No entities pending synthesis for %s", entity_type)
+        return
+
+    def _synthesize_one(merged: MergedEntity) -> None:
+        slug = slugify(merged.canonical_name)
+        outfile = output_dir / f"{slug}.json"
 
         matches = _matching_extractions(merged, extractions)
         if not matches:
             logger.warning("No extractions found for %s; skipping", merged.canonical_name)
-            continue
+            return
 
         formatted = _format_extractions_for_prompt(matches)
         prompt = build_synthesis_prompt(merged, entity_type, formatted)
@@ -170,3 +181,21 @@ def synthesize_articles(
             logger.error("Failed to synthesize %s: %s", merged.canonical_name, exc)
             if force:
                 raise
+
+    if config.PARALLEL_WORKERS <= 1:
+        for merged in pending:
+            _synthesize_one(merged)
+        return
+
+    with ThreadPoolExecutor(max_workers=config.PARALLEL_WORKERS) as executor:
+        futures = {executor.submit(_synthesize_one, merged): merged for merged in pending}
+        for future in as_completed(futures):
+            exc = future.exception()
+            if exc:
+                logger.error(
+                    "Synthesis worker failed for %s: %s",
+                    futures[future].canonical_name,
+                    exc,
+                )
+                if force:
+                    raise exc

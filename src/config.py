@@ -36,7 +36,7 @@ ENTITY_TYPES = [
 ]
 
 # Parallelism
-PARALLEL_WORKERS = 4
+PARALLEL_WORKERS = 8
 
 # I/O defaults
 DEFAULT_ENCODING = "utf-8"
