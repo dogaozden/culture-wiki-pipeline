@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}{{ entity_type.replace('_', ' ') | title }} in {{ book_title }} — Culture Wiki{% endblock %}
+
+{% block content %}
+<div class="type-index">
+    <div class="type-header">
+        <a href="{{ root_path }}books/{{ book_slug }}/index.html" class="back-link">← {{ book_title }}</a>
+        <h1>{{ entity_type.replace('_', ' ') | title }}</h1>
+        <p>{{ articles|length }} entities in {{ book_title }}</p>
+    </div>
+
+    <div class="article-list">
+        {% for article in articles %}
+        <a class="article-card" href="{{ root_path }}books/{{ book_slug }}/{{ entity_type }}/{{ article.slug }}.html">
+            <h3>{{ article.entity_name }}</h3>
+            {% if article.aliases %}
+            <div class="aliases">Also: {{ article.aliases[:3] | join(', ') }}{% if article.aliases|length > 3 %}...{%
+                endif %}</div>
+            {% endif %}
+            <p>{{ article.summary[:180] }}{% if article.summary|length > 180 %}...{% endif %}</p>
+            <div class="article-meta">
+                <span class="citation-count">{{ article.citations|length }} citations</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -29,12 +29,18 @@ ALIAS_BLACKLIST_PATTERNS = [
 
 # Specific known bad aliases to always filter
 ALIAS_BLACKLIST_EXACT = {
+    # Generic descriptors
     'an old flame', 'the woman', 'the man', 'the human', 'the drone',
     'the avatar', 'the creature', 'the emissary', 'the bird', 'the machine',
     'old perpetually pregnant', 'the other woman', 'lady', 'mistress',
     'boy', 'child', 'arse-hole', 'imbecile', 'moron', 'wretch', 'spy',
     'he', 'she', 'it', 'they', 'he/she', 'her man', 'your girl', 'our lass',
     'the bad guy', 'the girl', 'this human', 'young lady', 'representative',
+    # Generic ship terms (cause false merges)
+    'the ship', 'ship', 'the gsv', 'the gcu', 'the rou', 'the vessel',
+    'the craft', 'the module', 'the mind', 'its mind',
+    # Avatar names (NOT ship aliases - cause cross-entity merges!)
+    'amorphia',  # Sleeper Service's avatar, NOT equal to Jaundiced Outlook
 }
 
 import re
@@ -86,12 +92,48 @@ def _find_existing_key(
         key = slugify(name)
         if key in merged:
             return key
+        # Also try with class prefix stripped
+        stripped = _strip_class_prefix(name)
+        if stripped != name:
+            stripped_key = slugify(stripped)
+            if stripped_key in merged:
+                return stripped_key
     return None
 
 
+# Common Culture ship class prefixes to strip for matching
+SHIP_CLASS_PREFIXES = [
+    'GCU', 'GSV', 'GCV', 'ROU', 'LOU', 'LCU', 'MSV', 'VFP', 'OU', 'GOU',
+    'Plate class', 'Rapid Offensive Unit', 'General Contact Unit',
+    'General Systems Vehicle', 'Limited Offensive Unit', 'Offensive Unit',
+]
+
+def _strip_class_prefix(name: str) -> str:
+    """Strip ship class prefixes for better matching."""
+    for prefix in SHIP_CLASS_PREFIXES:
+        if name.upper().startswith(prefix.upper() + ' '):
+            return name[len(prefix):].strip()
+        # Also handle "The GCU X" pattern
+        if name.upper().startswith('THE ' + prefix.upper() + ' '):
+            return name[len('THE ') + len(prefix):].strip()
+    return name
+
+
 def _name_keys(entity: MergedEntity) -> set[str]:
+    """Generate all matching keys for an entity (including stripped prefixes)."""
     keys = {slugify(entity.canonical_name)}
     keys.update(slugify(alias) for alias in entity.aliases)
+    
+    # Also add stripped versions
+    stripped_canonical = _strip_class_prefix(entity.canonical_name)
+    if stripped_canonical != entity.canonical_name:
+        keys.add(slugify(stripped_canonical))
+    
+    for alias in entity.aliases:
+        stripped = _strip_class_prefix(alias)
+        if stripped != alias:
+            keys.add(slugify(stripped))
+    
     return {k for k in keys if k}
 
 

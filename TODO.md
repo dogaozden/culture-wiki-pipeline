@@ -5,7 +5,10 @@
 - [x] Synthesis prompts updated with entity-type-aware guidance
 - [x] Prominence-based sorting
 - [x] Citation verification (quote existence + fact-quote alignment checks)
-- [x] **Fix alias hallucinations** — Tightened extraction prompts (Dec 24, 2025)
+- [x] **Fix alias hallucinations** — Tightened extraction prompts + merge filter (Dec 24)
+- [x] **Synthesis uses ALL facts** — Removed editorial discretion, 92% fact coverage (Dec 24)
+- [x] **Clickable citations** — Smooth scroll + highlight animation (Dec 24)
+- [x] **Citation placement** — Post-processor moves citations after punctuation (Dec 24)
 
 ## 🔄 In Progress
 - [ ] Re-run full pipeline with updated prompts to verify alias fix
@@ -15,12 +18,6 @@
   ```
 
 ## 📋 Near-Term
-- [ ] **Tiered prominence for synthesis depth**
-  - Categorize entities: MAIN / MAJOR / MINOR based on prominence score thresholds
-  - MAIN: Extensive articles (2000-4000 words, full character arc, all relationships)
-  - MAJOR: Thorough coverage (1000-2000 words)
-  - MINOR: Concise summaries (300-800 words)
-  - Customize synthesis prompts per tier
 
 - [ ] **Process remaining 9 Culture novels**
   - Consider Phlebas, Player of Games, Use of Weapons, etc.
@@ -35,7 +32,17 @@
   - Client-side with lunr.js or fuse.js
   - Index entity names, aliases, summaries
 
+- [ ] **Book selection landing page**
+  - Landing screen before main wiki showing available books
+  - Filter entities by book until cross-book linking is ready
+  - Each book shows entity counts and completion status
+
 ## 🔮 Longer-Term
+- [ ] **Client-side search**
+  - lunr.js or fuse.js for full-text search
+  - Index: entity names, aliases, summaries, section content
+  - Keyboard shortcut (Cmd+K) for quick access
+
 - [ ] **Incremental updates**
   - Re-extract single chapters without full re-merge
   - Track extraction timestamps for staleness detection
@@ -44,13 +51,14 @@
   - GitHub Pages or Netlify
   - CI/CD for automated rebuilds
 
-- [ ] **Visualization**
-  - Character relationship graphs (force-directed)
+- [ ] **Relationship visualization**
+  - Character relationship graphs (force-directed with D3.js)
+  - Interactive: click nodes to navigate to articles
   - Timeline of events across novels
   - Faction hierarchies
 
 - [ ] **Reader contributions**
-  - Correction suggestions
+  - Correction suggestions via GitHub issues
   - Missing entity reports
 
 ## 🏗️ Architecture Notes

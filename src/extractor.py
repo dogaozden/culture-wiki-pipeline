@@ -22,7 +22,13 @@ CRITICAL RULES:
 2. Every fact MUST include a verbatim quote (word-for-word, copy-paste) as evidence
 3. If something is implied but not stated, do not include it
 4. When in doubt, include the entity with fewer facts rather than inventing details
-5. Quotes should be 10-50 words—enough for context, not entire paragraphs"""
+
+QUOTE REQUIREMENTS:
+- Copy the EXACT text from the passage, word-for-word
+- Include COMPLETE SENTENCES (not fragments)
+- 20-100 words per quote — enough for full context
+- Quotes are your EVIDENCE — if you can't find a direct quote, don't include the fact
+- Prefer quotes that are specific and informative over generic descriptions"""
 
 ENTITY_PROMPTS = {
     "characters": """Extract all CHARACTERS (people, beings, individuals) mentioned in this chapter.
@@ -34,16 +40,25 @@ Include:
 
 For each character provide:
 - name: Primary name used in this chapter
-- aliases: Other names/titles this character is CALLED in the text (empty array if none)
-  STRICT: Only include terms that appear VERBATIM as proper names, titles, or forms of 
-  address for this character. Include: shortened names ("Dajeil"), formal titles 
-  ("Ms Gelian"), ranks ("Commander"). EXCLUDE: descriptive phrases ("the woman", 
-  "an old flame"), pronouns, or narrator descriptions.
+- aliases: Other names/titles this SAME character is CALLED in the text (empty array if none)
+
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly says "X, also known as Y" or "X, called Y"
+  ✓ It's a shortened/formal form of the same name ("Dajeil" for "Dajeil Gelian")
+  ✓ It's a title/rank used for THIS person ("Ms Gelian", "Commander")
+  
+  NEVER include as aliases:
+  ✗ Descriptive phrases ("the woman", "an old flame", "the human")
+  ✗ Pronouns (he, she, they)
+  ✗ Narrator descriptions or epithets
+  ✗ Other characters who appear in the same scene
+  ✗ Ships/Minds (even if the character is associated with them)
+
 - species: If mentioned (human, Chelgrian, Homomdan, Idirian, drone, avatar, etc.) or null
 - affiliation: Culture, Special Circumstances, Elench, etc. if mentioned, or null
 - information: Array of facts observed in THIS chapter:
   - fact: One specific observation (role, action, relationship, trait, appearance)
-  - quote: EXACT verbatim text supporting this (10-50 words, copy-paste from passage)
+  - quote: EXACT verbatim text supporting this (20-100 words, complete sentences)
   - location: Brief context ("dialogue", "narrator description", "internal monologue")
 
 Return JSON: {"entities": [...]}
@@ -57,17 +72,29 @@ Include:
 - Orbitals' Hub Minds if named
 
 For each ship/Mind provide:
-- name: Full ship name (e.g., "Sleeper Service", "Grey Area", "Falling Outside The Normal Moral Constraints")
-- aliases: Other names this ship/Mind is CALLED in the text (empty array if none)
-  STRICT: Only include terms that appear VERBATIM as proper names for this ship/Mind.
-  Include: nicknames ("Meatfucker"), shortened names, previous names, designations.
-  EXCLUDE: generic references ("the ship", "the vessel") unless used as an official name.
+- name: Full ship name (e.g., "Sleeper Service", "Grey Area")
+- aliases: Other names this SAME ship is called in the text (empty array if none)
+  
+  STRICT ALIAS RULES - Only include if:
+  ✓ The text explicitly says "X, also known as Y" or "X (nicknamed Y)"
+  ✓ It's a shortened form of the same name ("the Sleeper" for "Sleeper Service")
+  ✓ It's a previous/alternate official name for THIS ship
+  
+  NEVER include as aliases:
+  ✗ Avatar names (avatars are SEPARATE entities from ships!)
+  ✗ Generic references ("the ship", "the vessel", "the GSV")
+  ✗ Other ships that appear in the same scene
+  ✗ Related but DIFFERENT entities
+  
+  Example: Grey Area's alias is "Meatfucker" (same ship)
+  Counter-example: "Amorphia" is the Sleeper Service's AVATAR, NOT an alias of the ship
+
 - class: Ship class if mentioned (GSV, GCU, ROU, LOU, Plate class, etc.) or null
 - affiliation: Culture, Elench, Affront, etc. or null
 - status: Active, destroyed, sublimed, eccentric, etc. if mentioned or null
 - information: Array of facts:
   - fact: One observation (action, personality trait, capability, history)
-  - quote: EXACT verbatim text (10-50 words)
+  - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Brief context
 
 Return JSON: {"entities": [...]}
@@ -90,7 +117,7 @@ For each location provide:
 - affiliation: Who controls/inhabits it if mentioned
 - information: Array of facts:
   - fact: One observation (description, what happens there, characteristics)
-  - quote: EXACT verbatim text (10-50 words)
+  - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context in narrative
 
 Return JSON: {"entities": [...]}
@@ -112,7 +139,7 @@ For each technology provide:
 - category: Weapon, implant, ship system, communication, tool, etc.
 - information: Array of facts:
   - fact: What it does, how it works, what happens when used
-  - quote: EXACT verbatim text (10-50 words)
+  - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context
 
 Return JSON: {"entities": [...]}
@@ -133,7 +160,7 @@ For each faction provide:
 - type: Civilization, division, organization, informal group, etc.
 - information: Array of facts:
   - fact: Characteristic, belief, action, relationship to other factions
-  - quote: EXACT verbatim text (10-50 words)
+  - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context
 
 Return JSON: {"entities": [...]}
@@ -155,7 +182,7 @@ For each event provide:
 - participants: Who was involved if mentioned
 - information: Array of facts:
   - fact: What happened, outcome, significance
-  - quote: EXACT verbatim text (10-50 words)
+  - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context in narrative
 
 Return JSON: {"entities": [...]}

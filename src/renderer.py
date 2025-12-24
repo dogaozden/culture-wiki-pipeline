@@ -156,9 +156,10 @@ def render_type_index(entity_type: str, articles: List[Article]) -> None:
 
 
 def render_root_index(type_map: Dict[str, List[Article]]) -> None:
+    """Legacy: renders the old-style index. Kept for backwards compatibility."""
     env = _env()
     template = env.get_template("index.html")
-    out_path = ensure_dir(config.WIKI_DIR) / "index.html"
+    out_path = ensure_dir(config.WIKI_DIR) / "old_index.html"
     context = {
         "title": "Culture Wiki",
         "sections": [
@@ -171,12 +172,160 @@ def render_root_index(type_map: Dict[str, List[Article]]) -> None:
     out_path.write_text(html, encoding="utf-8")
 
 
+def _get_books() -> List[Dict]:
+    """Get list of books from the books directory."""
+    books = []
+    if not config.BOOKS_DIR.exists():
+        return books
+    for book_dir in sorted(config.BOOKS_DIR.iterdir()):
+        if book_dir.is_dir() and not book_dir.name.startswith("."):
+            chapter_count = len(list(book_dir.glob("*.md")))
+            books.append({
+                "slug": slugify(book_dir.name),
+                "title": book_dir.name.replace("-", " ").replace("_", " ").title(),
+                "path": book_dir,
+                "chapter_count": chapter_count,
+            })
+    return books
+
+
+def _filter_articles_by_book(articles: List[Article], book_slug: str) -> List[Article]:
+    """Filter articles to only those appearing in a specific book."""
+    return [a for a in articles if book_slug in a.appears_in]
+
+
+def render_books_landing(books: List[Dict], type_map: Dict[str, List[Article]]) -> None:
+    """Render the main landing page showing all books."""
+    env = _env()
+    template = env.get_template("books_index.html")
+    out_path = ensure_dir(config.WIKI_DIR) / "index.html"
+    
+    # Compute stats per book
+    for book in books:
+        book_slug = book["slug"]
+        type_counts = {}
+        entity_count = 0
+        for et, arts in type_map.items():
+            book_arts = _filter_articles_by_book(arts, book_slug)
+            if book_arts:
+                type_counts[et] = len(book_arts)
+                entity_count += len(book_arts)
+        book["type_counts"] = type_counts
+        book["entity_count"] = entity_count
+    
+    total_entities = sum(len(arts) for arts in type_map.values())
+    
+    html = template.render(
+        title="Culture Wiki",
+        books=books,
+        total_books=len(books),
+        total_entities=total_entities,
+        root_path=_root_path_for(out_path),
+    )
+    out_path.write_text(html, encoding="utf-8")
+
+
+def render_book_index(book: Dict, type_map: Dict[str, List[Article]]) -> None:
+    """Render the index page for a single book."""
+    env = _env()
+    template = env.get_template("book_index.html")
+    book_slug = book["slug"]
+    out_path = ensure_dir(config.WIKI_DIR / "books" / book_slug) / "index.html"
+    
+    sections = []
+    total_entities = 0
+    for et, arts in type_map.items():
+        book_arts = _filter_articles_by_book(arts, book_slug)
+        if book_arts:
+            sections.append({
+                "type": et,
+                "count": len(book_arts),
+                "articles": book_arts,
+            })
+            total_entities += len(book_arts)
+    
+    html = template.render(
+        title=f"{book['title']} — Culture Wiki",
+        book_title=book["title"],
+        book_slug=book_slug,
+        sections=sections,
+        total_entities=total_entities,
+        chapter_count=book["chapter_count"],
+        root_path=_root_path_for(out_path),
+    )
+    out_path.write_text(html, encoding="utf-8")
+
+
+def render_book_type_index(book: Dict, entity_type: str, articles: List[Article]) -> None:
+    """Render the entity type list for a specific book."""
+    env = _env()
+    template = env.get_template("book_type_index.html")
+    book_slug = book["slug"]
+    book_arts = _filter_articles_by_book(articles, book_slug)
+    
+    if not book_arts:
+        return
+    
+    out_path = ensure_dir(config.WIKI_DIR / "books" / book_slug / entity_type) / "index.html"
+    html = template.render(
+        title=f"{entity_type.replace('_', ' ').title()} in {book['title']}",
+        book_title=book["title"],
+        book_slug=book_slug,
+        entity_type=entity_type,
+        articles=book_arts,
+        root_path=_root_path_for(out_path),
+    )
+    out_path.write_text(html, encoding="utf-8")
+
+
+def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) -> None:
+    """Render individual article pages within a book's section."""
+    env = _env()
+    template = env.get_template("article.html")
+    book_slug = book["slug"]
+    book_arts = _filter_articles_by_book(articles, book_slug)
+    
+    output_dir = ensure_dir(config.WIKI_DIR / "books" / book_slug / entity_type)
+    
+    for article in book_arts:
+        out_path = output_dir / f"{article.slug}.html"
+        html = template.render(
+            title=article.entity_name,
+            article=article,
+            entity_type=entity_type,
+            root_path=_root_path_for(out_path),
+            citations_json=json.dumps(
+                [c.model_dump() for c in article.citations], ensure_ascii=False
+            ),
+        )
+        out_path.write_text(html, encoding="utf-8")
+
+
 def render_all() -> None:
     _copy_assets()
+    
+    # Load all articles
     type_map: Dict[str, List[Article]] = {}
     for entity_type in config.ENTITY_TYPES:
         articles = render_articles(entity_type)
         if articles:
             render_type_index(entity_type, articles)
         type_map[entity_type] = articles
-    render_root_index(type_map)
+    
+    # Get books and render book-based structure
+    books = _get_books()
+    
+    if books:
+        # Render landing page with book selection
+        render_books_landing(books, type_map)
+        
+        # Render per-book pages
+        for book in books:
+            render_book_index(book, type_map)
+            for entity_type, articles in type_map.items():
+                render_book_type_index(book, entity_type, articles)
+                render_book_articles(book, entity_type, articles)
+    else:
+        # Fallback to old index if no books found
+        render_root_index(type_map)
+

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Culture Wiki{% endblock %}
+
+{% block content %}
+<div class="landing-page">
+    <!-- Hero Section -->
+    <div class="landing-hero">
+        <div class="hero-glow"></div>
+        <h1 class="hero-title">Culture Wiki</h1>
+        <p class="hero-subtitle">An LLM-generated encyclopedia for<br>Iain M. Banks' Culture series</p>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <span class="stat-number">{{ total_books }}</span>
+                <span class="stat-label">Novels</span>
+            </div>
+            <div class="hero-stat">
+                <span class="stat-number">{{ total_entities }}</span>
+                <span class="stat-label">Entities</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Books Grid -->
+    <div class="books-section">
+        <h2 class="section-title">
+            <span class="section-icon">📚</span>
+            Select a Novel
+        </h2>
+        <div class="books-grid">
+            {% for book in books %}
+            <a class="book-card {% if book.entity_count > 0 %}has-content{% endif %}"
+                href="{{ root_path }}books/{{ book.slug }}/index.html">
+                <div class="book-card-inner">
+                    <div class="book-spine"></div>
+                    <div class="book-content">
+                        <div class="book-title">{{ book.title }}</div>
+                        {% if book.entity_count > 0 %}
+                        <div class="book-stats">
+                            <span class="stat-badge">{{ book.entity_count }} entities</span>
+                            <span class="stat-badge">{{ book.chapter_count }} chapters</span>
+                        </div>
+                        <div class="book-types">
+                            {% for type, count in book.type_counts.items() %}
+                            <span class="type-badge">{{ type.replace('_', ' ')|title }}: {{ count }}</span>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="book-status">
+                            <span class="status-pending">Not yet processed</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="landing-footer">
+        <p>Every fact is cited with verbatim quotes from the source novels.</p>
+        <p class="footer-note">Generated with 💗 by the author, Claude, Gemini &amp; Codex</p>
+    </div>
+</div>
+{% endblock %}

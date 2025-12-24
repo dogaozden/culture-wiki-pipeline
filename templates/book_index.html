@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}{{ book_title }} — Culture Wiki{% endblock %}
+
+{% block content %}
+<div class="book-page">
+    <div class="book-header">
+        <a href="{{ root_path }}index.html" class="back-link">← All Books</a>
+        <h1>{{ book_title }}</h1>
+        <p class="book-subtitle">{{ total_entities }} entities across {{ chapter_count }} chapters</p>
+    </div>
+
+    <div class="entity-grid">
+        {% for section in sections %}
+        <a class="entity-card" href="{{ root_path }}books/{{ book_slug }}/{{ section.type }}/index.html">
+            <h3>{{ section.type.replace('_', ' ') | title }} ({{ section.count }})</h3>
+            <p>
+                {% if section.articles %}
+                {{ section.articles[0].summary[:200] }}{% if section.articles[0].summary|length > 200 %}...{% endif %}
+                {% else %}
+                No articles generated yet.
+                {% endif %}
+            </p>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
