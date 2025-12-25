@@ -9,6 +9,7 @@ from typing import Dict, List
 from . import config
 from .models import EntityExtraction, MergedEntity
 from .utils import read_json, slugify, write_json
+from .gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +195,16 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEn
     return consolidated
 
 
-def merge_entities(entity_type: str, force: bool = False) -> Path:
-    """Merge entities of a type and write merged JSON."""
+def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None) -> Path:
+    """
+    Merge entities of a type and write merged JSON.
+    
+    Args:
+        entity_type: Type of entities to merge
+        force: Overwrite existing merged file
+        skip_dedup: Skip LLM-based semantic deduplication (faster but less thorough)
+        client: Optional GeminiClient for deduplication (created if needed)
+    """
     output_path = config.ENTITIES_DIR / f"{entity_type}.json"
     if output_path.exists() and not force:
         logger.info("Merged entities already exist at %s", output_path)
@@ -237,4 +246,23 @@ def merge_entities(entity_type: str, force: bool = False) -> Path:
         len(merged),
         output_path,
     )
+    
+    # Run LLM-based semantic deduplication
+    if not skip_dedup:
+        try:
+            # Import here to avoid circular dependency
+            import sys
+            sys.path.insert(0, str(config.PROJECT_ROOT))
+            from deduplicate_entities import run_deduplication
+            
+            if client is None:
+                client = GeminiClient()
+            removed = run_deduplication(entity_type, client)
+            if removed > 0:
+                logger.info("LLM deduplication removed %d duplicates from %s", removed, entity_type)
+        except Exception as e:
+            logger.warning("LLM deduplication failed for %s: %s", entity_type, e)
+    else:
+        logger.info("Skipping LLM deduplication for %s (--skip-dedup)", entity_type)
+    
     return output_path

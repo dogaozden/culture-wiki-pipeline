@@ -66,6 +66,11 @@ def main() -> None:
         default=None,
         help="Max synthesis retries on citation failures (default: 10)",
     )
+    parser.add_argument(
+        "--skip-dedup",
+        action="store_true",
+        help="Skip LLM-based semantic deduplication during merge stage (faster but less thorough)",
+    )
 
     args = parser.parse_args()
     if args.clean and args.stage != "clean":
@@ -87,6 +92,7 @@ def main() -> None:
         clean_targets=args.clean,
         yes=args.yes,
         max_retries=args.max_retries,
+        skip_dedup=args.skip_dedup,
     )
 
 

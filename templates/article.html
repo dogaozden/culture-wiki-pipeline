@@ -81,8 +81,12 @@
         <div class="related-title">Related</div>
         <div class="related-list">
             {% for related in article.related_entities %}
-            <a class="related-link" href="{{ root_path }}{{ entity_type }}/{{ related | slugify }}.html">{{ related
-                }}</a>
+            {% set link = related | entity_link(root_path) %}
+            {% if link %}
+            <a class="related-link" href="{{ link }}">{{ related }}</a>
+            {% else %}
+            <span class="related-unlinked" title="No article found">{{ related }}</span>
+            {% endif %}
             {% endfor %}
         </div>
     </div>

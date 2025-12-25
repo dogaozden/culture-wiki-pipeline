@@ -20,3 +20,6 @@ aiofiles>=23.0.0
 
 # Development
 python-dotenv>=1.0.0  # For loading .env files with API keys
+
+# MCP Server
+mcp>=1.0.0            # Model Context Protocol for Claude Desktop

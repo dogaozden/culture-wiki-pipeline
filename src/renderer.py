@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
+# Global entity lookup: maps slugified names to (entity_type, slug)
+# Built during render_all() and used for cross-entity linking
+_ENTITY_LOOKUP: Dict[str, tuple] = {}
+
 
 def _env() -> Environment:
     env = Environment(
@@ -30,7 +34,29 @@ def _env() -> Environment:
     )
     env.filters["citations"] = _link_citations
     env.filters["slugify"] = slugify
+    env.filters["entity_link"] = _entity_link_filter
     return env
+
+
+def _entity_link_filter(entity_name: str, root_path: str = "") -> str:
+    """
+    Resolve an entity name to its correct URL path.
+    Returns the href path, or empty string if entity not found.
+    """
+    if not entity_name:
+        return ""
+    
+    # Try multiple variations of the name
+    slug = slugify(entity_name)
+    lookup_keys = [slug, entity_name.lower().strip()]
+    
+    for key in lookup_keys:
+        if key in _ENTITY_LOOKUP:
+            entity_type, entity_slug = _ENTITY_LOOKUP[key]
+            return f"{root_path}{entity_type}/{entity_slug}.html"
+    
+    # Not found - return empty string
+    return ""
 
 
 def _root_path_for(output_path: Path) -> str:
@@ -140,6 +166,27 @@ def render_articles(entity_type: str) -> List[Article]:
         )
         out_path.write_text(html, encoding="utf-8")
     return articles
+
+
+def _render_articles_with_lookup(entity_type: str, articles: List[Article]) -> None:
+    """Render articles with cross-entity linking enabled (uses global lookup)."""
+    env = _env()
+    template = env.get_template("article.html")
+    output_dir = ensure_dir(config.WIKI_DIR / entity_type)
+
+    for article in articles:
+        out_path = output_dir / f"{article.slug}.html"
+        root = _root_path_for(out_path)
+        html = template.render(
+            title=article.entity_name,
+            article=article,
+            entity_type=entity_type,
+            root_path=root,
+            citations_json=json.dumps(
+                [c.model_dump() for c in article.citations], ensure_ascii=False
+            ),
+        )
+        out_path.write_text(html, encoding="utf-8")
 
 
 def render_type_index(entity_type: str, articles: List[Article]) -> None:
@@ -302,15 +349,41 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
 
 
 def render_all() -> None:
+    global _ENTITY_LOOKUP
     _copy_assets()
     
-    # Load all articles
+    # First pass: Load all articles and build the global entity lookup
+    # This must happen BEFORE rendering so cross-entity links can be resolved
     type_map: Dict[str, List[Article]] = {}
+    _ENTITY_LOOKUP = {}  # Reset lookup
+    
     for entity_type in config.ENTITY_TYPES:
-        articles = render_articles(entity_type)
-        if articles:
-            render_type_index(entity_type, articles)
+        articles = _load_articles(entity_type)
         type_map[entity_type] = articles
+        
+        # Build lookup for this entity type
+        for article in articles:
+            # Map by slug (primary)
+            _ENTITY_LOOKUP[article.slug] = (entity_type, article.slug)
+            # Map by entity name (lowercase)
+            _ENTITY_LOOKUP[article.entity_name.lower().strip()] = (entity_type, article.slug)
+            # Map by aliases
+            for alias in article.aliases:
+                if alias:
+                    alias_slug = slugify(alias)
+                    if alias_slug not in _ENTITY_LOOKUP:
+                        _ENTITY_LOOKUP[alias_slug] = (entity_type, article.slug)
+                    if alias.lower().strip() not in _ENTITY_LOOKUP:
+                        _ENTITY_LOOKUP[alias.lower().strip()] = (entity_type, article.slug)
+    
+    logger.info("Built entity lookup with %d entries for cross-linking", len(_ENTITY_LOOKUP))
+    
+    # Second pass: Render all articles (now with working cross-entity links)
+    for entity_type in config.ENTITY_TYPES:
+        articles = type_map[entity_type]
+        if articles:
+            _render_articles_with_lookup(entity_type, articles)
+            render_type_index(entity_type, articles)
     
     # Get books and render book-based structure
     books = _get_books()

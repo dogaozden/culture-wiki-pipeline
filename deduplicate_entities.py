@@ -76,6 +76,132 @@ ENTITIES TO ANALYZE:
 """
 
 
+# Prompt for LLM to identify alias-related facts
+ALIAS_FILTER_PROMPT = """You are analyzing facts about entities from a novel within Iain M. Banks's Culture series.
+
+For each entity below, identify facts that mention:
+- Former/previous names ("once called", "formerly known as")
+- Nicknames or aliases ("also known as", "nicknamed")
+- Name changes ("renamed", "now called", "later became")
+
+Return ONLY the facts that mention alternative names. If no such facts exist for an entity, omit it from output.
+
+Output JSON format:
+```json
+{
+  "entities": [
+    {
+      "name": "Entity Name",
+      "alias_facts": ["Fact about former name...", "Fact about nickname..."]
+    }
+  ]
+}
+```
+
+If no entities have alias-related facts, return: {"entities": []}
+
+---
+ENTITIES AND THEIR FACTS:
+
+"""
+
+ALIAS_BATCH_SIZE = 10  # Entities per LLM call for alias filtering
+
+
+def _ref_to_path(ref: str, entity_type: str) -> Path:
+    """Convert extraction ref like 'excession_ch011' to file path."""
+    parts = ref.split("_")
+    if len(parts) >= 2:
+        book = parts[0]
+        chapter = "_".join(parts[:2])
+        return config.EXTRACTIONS_DIR / entity_type / book / f"{chapter}_{entity_type}.json"
+    return Path()
+
+
+def load_all_facts_for_entity(entity_type: str, entity_name: str, aliases: list[str], extraction_refs: list[str]) -> list[str]:
+    """Load ALL facts for an entity from its extractions (searching by name AND aliases)."""
+    facts = []
+    names_to_search = {entity_name.lower()} | {a.lower() for a in aliases}
+    
+    for ref in extraction_refs:
+        path = _ref_to_path(ref, entity_type)
+        if not path.exists():
+            continue
+        try:
+            data = read_json(path)
+            for ent in data.get("entities", []):
+                if ent.get("name", "").lower() in names_to_search:
+                    for info in ent.get("information", []):
+                        facts.append(info.get("fact", ""))
+        except Exception:
+            pass
+    
+    return facts
+
+
+def find_alias_facts_llm(client: GeminiClient, entity_type: str, entities: list[dict]) -> dict[str, list[str]]:
+    """Use LLM to identify alias-related facts for entities. Returns {entity_name: [alias_facts]}."""
+    if not entities:
+        return {}
+    
+    alias_facts_map = {}
+    
+    # Process in batches
+    for i in range(0, len(entities), ALIAS_BATCH_SIZE):
+        batch = entities[i:i + ALIAS_BATCH_SIZE]
+        batch_num = (i // ALIAS_BATCH_SIZE) + 1
+        total_batches = (len(entities) + ALIAS_BATCH_SIZE - 1) // ALIAS_BATCH_SIZE
+        
+        if total_batches > 1:
+            logger.info("Alias pre-filter: batch %d/%d...", batch_num, total_batches)
+        
+        # Build prompt with all facts for each entity
+        prompt_parts = []
+        for e in batch:
+            name = e.get("canonical_name", "Unknown")
+            aliases = e.get("aliases", [])
+            refs = e.get("extraction_refs", [])
+            
+            all_facts = load_all_facts_for_entity(entity_type, name, aliases, refs)
+            if not all_facts:
+                continue
+            
+            facts_str = "\n".join(f"  - {f}" for f in all_facts[:20])  # Cap at 20 facts per entity
+            prompt_parts.append(f"**{name}**\n{facts_str}")
+        
+        if not prompt_parts:
+            continue
+        
+        prompt = ALIAS_FILTER_PROMPT + "\n\n".join(prompt_parts)
+        
+        # Retry up to 3 times on failure
+        for attempt in range(3):
+            try:
+                response = client.client.models.generate_content(
+                    model=client.model_name,
+                    contents=prompt,
+                    config={
+                        "response_mime_type": "application/json",
+                    }
+                )
+                
+                # Parse JSON from response
+                result = json.loads(response.text)
+                for entity in result.get("entities", []):
+                    name = entity.get("name", "")
+                    facts = entity.get("alias_facts", [])
+                    if name and facts:
+                        alias_facts_map[name.lower()] = facts
+                break  # Success, exit retry loop
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning("Alias filter batch %d failed (attempt %d/3): %s. Retrying...", batch_num, attempt + 1, e)
+                else:
+                    logger.warning("Alias filter batch %d failed after 3 attempts: %s", batch_num, e)
+    
+    return alias_facts_map
+
+
 def load_entities(entity_type: str) -> list[dict]:
     """Load merged entities from JSON."""
     path = config.ENTITIES_DIR / f"{entity_type}.json"
@@ -86,55 +212,62 @@ def load_entities(entity_type: str) -> list[dict]:
     return data.get("entities", [])
 
 
-def load_entity_facts(entity_type: str, entity_name: str, extraction_refs: list[str]) -> list[str]:
-    """Load the first few facts for an entity from its extractions."""
-    facts = []
-    for ref in extraction_refs[:3]:  # Only check first 3 chapters
-        # Parse ref like "excession_ch011" -> "excession/excession_ch011_<type>.json"
-        parts = ref.split("_")
-        if len(parts) >= 2:
-            book = parts[0]
-            chapter = "_".join(parts[:2])
-            path = config.EXTRACTIONS_DIR / entity_type / book / f"{chapter}_{entity_type}.json"
-            if path.exists():
-                try:
-                    data = read_json(path)
-                    for ent in data.get("entities", []):
-                        if ent.get("name", "").lower() == entity_name.lower():
-                            for info in ent.get("information", [])[:2]:
-                                facts.append(info.get("fact", ""))
-                except Exception:
-                    pass
-        if len(facts) >= 3:
-            break
-    return facts[:3]
-
-
-def format_entity_list(entities: list[dict], entity_type: str) -> str:
-    """Format entities for the LLM prompt, including key facts."""
+def format_entity_list(entities: list[dict], entity_type: str, alias_facts_map: dict[str, list[str]] = None) -> str:
+    """Format entities for the LLM prompt, including alias-related facts."""
+    if alias_facts_map is None:
+        alias_facts_map = {}
+    
     lines = []
     for i, e in enumerate(entities, 1):
         name = e.get("canonical_name", "Unknown")
         aliases = e.get("aliases", [])
-        refs = e.get("extraction_refs", [])
         
         # Build entity line
         line = f"{i}. **{name}**"
         if aliases:
             line += f"\n   Aliases: {', '.join(aliases[:5])}"
         
-        # Load and include facts
-        facts = load_entity_facts(entity_type, name, refs)
-        if facts:
-            line += f"\n   Facts: {'; '.join(facts[:2])}"
+        # Include alias-related facts from pre-filter (if available)
+        alias_facts = alias_facts_map.get(name.lower(), [])
+        if alias_facts:
+            line += f"\n   Alias-related facts: {'; '.join(alias_facts[:3])}"
         
         lines.append(line)
     return "\n\n".join(lines)
 
 
+BATCH_SIZE = 100  # Process entities in batches to avoid API limits
+
+
 def find_duplicates(client: GeminiClient, entity_type: str, entities: list[dict]) -> list[dict]:
-    """Use LLM to find semantic duplicates."""
-    entity_list = format_entity_list(entities, entity_type)
+    """Use LLM to find semantic duplicates, processing in batches if needed."""
+    
+    # Step 1: Run alias pre-filter to find relevant facts
+    logger.info("Running alias pre-filter on %d entities...", len(entities))
+    alias_facts_map = find_alias_facts_llm(client, entity_type, entities)
+    logger.info("Found alias-related facts for %d entities", len(alias_facts_map))
+    
+    # Step 2: Run deduplication with alias facts
+    if len(entities) <= BATCH_SIZE:
+        return _find_duplicates_single_batch(client, entity_type, entities, alias_facts_map)
+    
+    # Process in batches for large entity lists
+    all_duplicates = []
+    for i in range(0, len(entities), BATCH_SIZE):
+        batch = entities[i:i + BATCH_SIZE]
+        batch_num = (i // BATCH_SIZE) + 1
+        total_batches = (len(entities) + BATCH_SIZE - 1) // BATCH_SIZE
+        logger.info("Dedup batch %d/%d (%d entities)...", batch_num, total_batches, len(batch))
+        
+        batch_duplicates = _find_duplicates_single_batch(client, entity_type, batch, alias_facts_map)
+        all_duplicates.extend(batch_duplicates)
+    
+    return all_duplicates
+
+
+def _find_duplicates_single_batch(client: GeminiClient, entity_type: str, entities: list[dict], alias_facts_map: dict[str, list[str]] = None) -> list[dict]:
+    """Use LLM to find semantic duplicates in a single batch."""
+    entity_list = format_entity_list(entities, entity_type, alias_facts_map)
     prompt = DEDUPE_PROMPT + entity_list
     
     logger.info("Sending %d entities to LLM for deduplication analysis...", len(entities))
@@ -186,6 +319,46 @@ def apply_deduplication(entity_type: str, duplicates: list[dict]) -> None:
     data["entities"] = filtered
     write_json(data, path)
     logger.info("Updated %s", path)
+    return removed
+
+
+def run_deduplication(entity_type: str, client: GeminiClient = None) -> int:
+    """
+    Run LLM deduplication on merged entities.
+    Called automatically from the merger to deduplicate after consolidation.
+    
+    Returns the number of duplicates removed.
+    """
+    entities = load_entities(entity_type)
+    if not entities:
+        logger.info("No entities to deduplicate for %s", entity_type)
+        return 0
+    
+    if len(entities) < 5:
+        # Too few entities to bother with LLM deduplication
+        logger.info("Skipping deduplication for %s (%d entities, too few)", entity_type, len(entities))
+        return 0
+    
+    # Initialize client if not provided
+    if client is None:
+        client = GeminiClient()
+    
+    logger.info("Running LLM deduplication on %d %s entities...", len(entities), entity_type)
+    
+    # Find duplicates
+    duplicates = find_duplicates(client, entity_type, entities)
+    
+    if not duplicates:
+        logger.info("No duplicates found for %s", entity_type)
+        return 0
+    
+    logger.info("Found %d duplicate(s) for %s, applying...", len(duplicates), entity_type)
+    for dup in duplicates:
+        logger.debug("  - KEEP %s, DELETE %s: %s", dup['keep'], dup['delete'], dup['reason'])
+    
+    # Apply deduplication
+    removed = apply_deduplication(entity_type, duplicates)
+    return removed
 
 
 def main():
