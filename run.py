@@ -71,6 +71,12 @@ def main() -> None:
         action="store_true",
         help="Skip LLM-based semantic deduplication during merge stage (faster but less thorough)",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Gemini model to use (e.g., gemini-2.5-flash-lite, gemini-3-flash-preview). Default: gemini-3-flash-preview",
+    )
 
     args = parser.parse_args()
     if args.clean and args.stage != "clean":
@@ -80,6 +86,8 @@ def main() -> None:
     from src import config
     if args.workers is not None:
         config.PARALLEL_WORKERS = args.workers
+    if args.model is not None:
+        config.GEMINI_MODEL = args.model
     
     pipeline = Pipeline()
     pipeline.run(

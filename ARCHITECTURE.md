@@ -37,6 +37,28 @@ For each entity found:
 - **Relationships** — Connections to other entities
 - **Prominence score** — How important is this entity in this chapter?
 
+### Post-Processing (Deterministic, No API Cost)
+
+After getting LLM response, we run deterministic code to:
+
+1. **Validate quotes** — Check each quote exists in source text
+   - Rejects hallucinated quotes before saving
+   - Logged as warnings for debugging
+
+2. **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
+   - Example: `excession_ch014#003` = 3rd fact from chapter 14
+   - IDs are stable across re-runs (deterministic)
+   - Used by synthesis for citation validation
+
+```
+LLM Response → Validate Quotes → Assign Fact IDs → Save JSON
+                    ↓ (reject)
+           ⚠️ Hallucinated quote logged
+```
+
+> 💡 **Why this matters:** Fact IDs are assigned AFTER the LLM call, so re-running 
+> extraction with cached LLM responses still regenerates fact IDs at near-zero cost.
+
 **Output:**  
 `data/extractions/{type}/{book}/{chapter}_{type}.json`
 
@@ -61,17 +83,18 @@ Combine all chapter extractions into unified entity lists.
    - Ship prefix stripping: "GCU Grey Area" matches "Grey Area"
 
 2. **Canonical name selection**  
-   Currently picks the longest name. This can cause issues (see Known Issues below).
+   Picks the name that appears in the **most chapters** (by extraction_refs count).
+   This ensures "Sleeper Service" (48 chapters) beats "Quietly Confident" (mentioned once).
 
 3. **LLM Deduplication (runs AFTER deterministic)**  
-   Send entity batches to Gemini asking: "Are any of these the same thing?"  
-   Catches semantic duplicates the Python code misses.
+   - First runs **alias pre-filter**: asks LLM to identify facts mentioning former names
+   - Then runs **main dedup**: compares entities with their alias-related facts
+   - Batched processing with retry logic for API failures
+   - **Recommend using `--model gemini-2.5-flash-lite-preview-09-2025`** for speed/cost
 
-> ⚠️ **Known Issue: Wrong Canonical Name**  
-> If a minor alias gets more extraction refs, it may become the canonical name.
-> Example: "Quietly Confident" (old ship name mentioned once) became canonical instead of "Sleeper Service" (used throughout the book).
-> 
-> **Proposed fix:** Use prominence scores or mention frequency to pick canonical name.
+> ✅ **Fixed: Canonical Name Selection**  
+> Previously picked the longest name, causing "Quietly Confident" to be canonical instead of "Sleeper Service".
+> Now uses chapter frequency — names appearing in more chapters win.
 
 **Output:**  
 `data/entities/{type}.json` — One file per entity type with all merged entities
@@ -98,11 +121,57 @@ Write wiki articles for each entity using all extracted facts.
 1. **Gather all facts** from every chapter where the entity appears
 2. **Build a prompt** containing:
    - Entity name and aliases
-   - All extracted facts with their source quotes
-   - Instructions for wiki-style writing
+   - All extracted facts with their unique fact IDs (e.g., `[excession_ch014#003]`)
+   - Instructions to use exact fact IDs provided
 3. **Ask Gemini** to write a cohesive article using these facts
-4. **Validate citations** — Every claim must trace back to a source quote
-5. **Retry if needed** — If Gemini invents citations, we retry (up to 10x)
+4. **Validate citations** against known fact IDs from extraction
+5. **Retry if needed** — Up to N retries (default: 10, configurable via `--max-retries`)
+
+### Fact ID System
+
+**Format:** `{chunk_id}#{sequence}` (e.g., `excession_ch014#003`)
+
+**At extraction time:**
+- Each fact is assigned a unique ID based on its source chapter and sequence
+- Quotes are validated against source text before saving
+- Hallucinated quotes are rejected and logged
+
+**At synthesis time:**
+- Fact IDs are shown in the prompt: `• [excession_ch001#003] Fact: ...`
+- LLM is instructed to use exact IDs in article text and citations array
+- Validation checks that all referenced `[fact_id]` markers exist in the citations array
+- IDs are normalized to lowercase for consistent matching
+
+### Citation Validation Flow
+
+```
+Prompt: "[excession_ch014#003] Fact: The ship was massive..."
+                            ↓
+LLM writes: "The ship was massive [excession_ch014#003]."
+                            ↓
+Validation: Is excession_ch014#003 in our fact_id_map? ✓
+            Quote matches pre-validated quote? ✓
+                            ↓
+Citation accepted → Build from pre-validated data
+```
+
+**Key benefits:**
+- No more citation number mismatches
+- Traceability: fact ID links directly to source file
+- Pre-validation: quotes verified at extraction, not synthesis
+- Deduplication: same quote across entities only cited once
+> - Complex entities require synthesizing disparate information
+>
+> **Current mitigations:**
+> - Retry up to N times (configurable)
+> - Skip entities after max retries
+>
+> **Potential future fixes:**
+> - Chunk large entities into sections
+> - Add explicit citation count to prompt
+> - Post-process to renumber citations
+>
+> **NO looser validation** — We require 100% valid citations. Never accept hallucinated sources.
 
 **Output:**  
 `data/articles/{type}/{slug}.json`
@@ -202,3 +271,132 @@ wiki/                      ← Rendered HTML website
 ---
 
 *Last updated: December 25, 2025*
+## 💻 CLI Usage
+
+### Setup
+0. **Set API key** (required for extract/synthesize)
+   Edit `.env` (repo root) and set:
+   ```bash
+   GEMINI_API_KEY=your_key_here
+   ```
+
+### Common Workflows
+
+**Full pipeline in one go (all stages):**
+```bash
+python3 run.py --stage all
+```
+
+**Clean derived outputs (optional):**
+```bash
+# Full rebuild (clears all derived data + wiki):
+python3 run.py --stage clean --clean all --yes
+
+# Only clear Gemini cache (force new API calls):
+python3 run.py --stage clean --clean cache --yes
+
+# Only clear rendered site outputs:
+python3 run.py --stage clean --clean output --yes
+```
+
+### Stage-by-Stage
+
+1. **Extraction (API calls)**
+   ```bash
+   # Quick prompt preview (no API calls)
+   python3 run.py --stage extract --book excession --dry-run
+   
+   # Small test run (first 2 chapters, one entity type)
+   python3 run.py --stage extract --book excession --entity-type characters --limit 2
+   
+   # Full extraction for a book
+   python3 run.py --stage extract --book excession
+   ```
+
+2. **Merge (Local + Optional LLM)**
+   ```bash
+   # Merge all extractions across books
+   python3 run.py --stage merge --model gemini-2.5-flash-lite-preview-09-2025
+   
+   # Skip LLM deduplication (faster)
+   python3 run.py --stage merge --skip-dedup
+   ```
+
+3. **Synthesis (API calls)**
+   ```bash
+   # Synthesize articles (skips existing unless --force)
+   python3 run.py --stage synthesize
+   
+   # With specific settings
+   python3 run.py --stage synthesize --workers 8 --max-retries 5 --model gemini-2.5-flash-lite-preview-09-2025
+   ```
+
+4. **Render (Local)**
+   ```bash
+   python3 run.py --stage render
+   ```
+
+5. **Serve**
+   ```bash
+   cd wiki && python3 -m http.server 8000
+   ```
+### Reference: CLI Flags
+
+- `--force`: Regenerate outputs and ignore cache (costly).
+- `--entity-type`: Focus on a single category (characters, ships_and_minds, etc.).
+- `--limit N`: Process only N items (speed up testing).
+- `--workers N`: Set parallel workers (default: 16).
+- `--max-retries N`: Set max synthesis retries on citation failures (default: 10).
+- `--skip-dedup`: Skip LLM deduplication during merge.
+- `--model`: Specify Gemini model (default: `gemini-3-flash-preview`).
+  - `gemini-2.5-flash-lite-preview-09-2025` (Fast, cheap)
+  - `gemini-3-flash-preview` (Higher limits)
+
+### Debugging & Verification
+
+**Citation verification (API calls):**
+```bash
+# Verify fact-quote alignment using LLM
+python3 citation_checker.py --entity-type characters --limit 5
+
+# Check a specific article
+python3 citation_checker.py --article dajeil-gelian
+
+# Dry run
+python3 citation_checker.py --dry-run
+```
+
+**View compiled entity data:**
+```bash
+python3 show_entity_data.py characters "Dajeil Gelian"
+
+# With full synthesis prompt
+python3 show_entity_data.py characters Dajeil --full-prompt
+```
+
+**Manual LLM deduplication:**
+```bash
+# Preview duplicates
+python3 deduplicate_entities.py --entity-type events --dry-run
+
+# Apply deduplication
+python3 deduplicate_entities.py --entity-type events --apply
+```
+
+
+### MCP Server (Claude Desktop)
+
+The Culture Wiki can be accessed from Claude Desktop via MCP. See `MCP_SETUP.md` for configuration instructions.
+
+**Test locally:**
+```bash
+source venv/bin/activate && python3 mcp_server.py
+```
+
+**Available tools:**
+- `search_wiki`: Full-text search across all entities
+- `get_entity`: Get full article about a specific entity
+- `list_entities`: Browse entities by type
+- `get_relationships`: See entity connections
+- `get_citation`: Get a specific source quote by ID
+- `get_wiki_stats`: Overview of wiki coverage

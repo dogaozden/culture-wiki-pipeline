@@ -172,9 +172,12 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEn
 
     consolidated: Dict[str, MergedEntity] = {}
     for group_entities in grouped.values():
+        # Prefer the name that appears in the most chapters (extraction refs)
+        # This ensures major names like "Sleeper Service" beat minor mentions like "Quietly Confident"
         canonical = max(
-            (e.canonical_name for e in group_entities), key=lambda n: len(n)
-        )
+            ((e.canonical_name, len(e.extraction_refs)) for e in group_entities),
+            key=lambda x: (x[1], len(x[0]))  # Primary: ref count, secondary: longest name
+        )[0]
         aliases: set[str] = set()
         appears_in: set[str] = set()
         extraction_refs: set[str] = set()
@@ -214,7 +217,12 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     merged: Dict[str, MergedEntity] = {}
 
     for extraction in extractions:
-        book_slug = extraction.chunk_id.split("_")[0]
+        # Extract book slug from chunk_id (e.g., "Excession_split_006" -> "excession")
+        chunk_id = extraction.chunk_id
+        if "_split_" in chunk_id:
+            book_slug = chunk_id.split("_split_")[0].lower()
+        else:
+            book_slug = chunk_id.split("_")[0].lower()
         for ent in extraction.entities:
             candidate_names = [ent.name] + list(ent.aliases)
             existing_key = _find_existing_key(merged, candidate_names)

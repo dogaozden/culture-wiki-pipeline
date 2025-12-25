@@ -62,7 +62,8 @@
 
     function bindCitationEvents() {
         document.querySelectorAll('.citation-link').forEach(link => {
-            const citationId = parseInt(link.dataset.citationId, 10);
+            // Citation ID can be a string (fact ID like "excession_ch001#003") or integer
+            const citationId = link.dataset.citationId;
 
             // Desktop: hover behavior
             link.addEventListener('mouseenter', (e) => {
@@ -91,7 +92,9 @@
 
                 // Scroll to the reference after a short delay
                 setTimeout(() => {
-                    const refElement = document.getElementById(`cite-${citationId}`);
+                    // Convert fact ID to anchor format (replace # with -)
+                    const anchorId = String(citationId).replace('#', '-');
+                    const refElement = document.getElementById(`cite-${anchorId}`);
                     if (refElement) {
                         refElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         // Highlight the reference briefly
@@ -147,7 +150,9 @@
     // ==========================================================================
 
     function showTooltip(citationId, anchor) {
-        const citation = citations.find(c => c.id === citationId);
+        // Handle both string fact IDs and legacy integer IDs
+        // Compare as strings to handle both formats
+        const citation = citations.find(c => String(c.id).toLowerCase() === String(citationId).toLowerCase());
 
         if (!citation) {
             console.warn('Citation not found:', citationId);

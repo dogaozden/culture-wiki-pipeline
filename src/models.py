@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Union
 
 try:
     from pydantic import BaseModel, ConfigDict, Field
@@ -65,10 +65,9 @@ class Chapter(BaseModel):
 
     @property
     def chunk_id(self) -> str:
-        base = f"{self.book_slug}_ch{self.index:03d}"
-        if self.split_part:
-            base = f"{base}_p{self.split_part:02d}"
-        return base
+        """Return source filename stem (e.g., 'Excession_split_006') for direct verification."""
+        from pathlib import Path
+        return Path(self.source_file).stem
 
 
 @datamodel
@@ -94,6 +93,7 @@ class EntityFact(BaseModel):
     fact: str
     quote: str
     location: Optional[str] = None
+    id: Optional[str] = None  # Fact ID: {chunk_id}#{seq} e.g. "excession_ch014#003"
 
 
 @datamodel
@@ -154,7 +154,7 @@ class Citation(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    id: int
+    id: Union[str, int]  # Fact ID: e.g., "excession_ch014#003" (or legacy int)
     book: str
     quote: str
     chunk_id: str
@@ -170,7 +170,7 @@ class ArticleSection(BaseModel):
 
     title: str
     content: str
-    citations: List[int] = Field(default_factory=list)
+    citations: List = Field(default_factory=list)  # Fact IDs (can be strings or ints from LLM)
 
 
 @datamodel
@@ -198,16 +198,16 @@ class Article(BaseModel):
 @datamodel
 class SynthesisSection(BaseModel):
     title: str = Field(description="Section title")
-    content: str = Field(description="Section content with inline [N] citations")
-    citations: List[int] = Field(
+    content: str = Field(description="Section content with inline [fact_id] citations")
+    citations: List = Field(
         default_factory=list,
-        description="Optional list of citation ids used in this section",
+        description="Optional list of citation ids used in this section (can be strings or ints)",
     )
 
 
 @datamodel
 class SynthesisCitation(BaseModel):
-    id: int = Field(description="Citation number used in the article")
+    id: str = Field(description="Fact ID used in the article (format: chunk_id#seq, e.g., excession_ch001#003)")
     book: str = Field(description="Book title where the quote appears")
     quote: str = Field(description="Exact quote from the source text")
     chunk_id: str = Field(description="Chunk id containing the quote")

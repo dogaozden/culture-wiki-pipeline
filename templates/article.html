@@ -28,7 +28,7 @@
     </header>
 
     {% if article.summary %}
-    <p class="article-summary">{{ article.summary | citations }}</p>
+    <p class="article-summary">{{ article.summary | citations(citation_map) }}</p>
     {% endif %}
 
     {% if article.sections %}
@@ -45,7 +45,7 @@
     <section id="section-{{ loop.index }}" class="article-section">
         <h2>{{ section.title }}</h2>
         <div class="section-content">
-            {{ section.content | citations }}
+            {{ section.content | citations(citation_map) }}
         </div>
     </section>
     {% endfor %}
@@ -56,19 +56,17 @@
         <h2>References</h2>
         <ul class="references-list">
             {% for citation in article.citations %}
-            <li id="cite-{{ citation.id }}" class="reference-item">
-                <span class="reference-number">[{{ citation.id }}]</span>
+            <li id="cite-{{ citation.id | string | lower | replace('#', '-') }}" class="reference-item">
+                <span class="reference-number">[{{ loop.index }}]</span>
                 <div class="reference-book">
                     {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
                 </div>
-                <div class="reference-quote">“{{ citation.quote }}”</div>
+                <div class="reference-quote">"{{ citation.quote }}"</div>
                 <div class="reference-meta">
                     Source:
-                    {% if citation.source_file %}
-                    {{ citation.source_file }}; {{ citation.chunk_id }}
-                    {% else %}
+                    {% if citation.source_file %}{{ citation.source_file }}; {% endif %}
+                    <code>{{ citation.id }}</code>;
                     {{ citation.chunk_id }}
-                    {% endif %}
                 </div>
             </li>
             {% endfor %}

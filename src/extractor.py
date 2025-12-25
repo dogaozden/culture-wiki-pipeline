@@ -400,10 +400,63 @@ BOOK: {chunk.book_title}
 Extract all {entity_type} from the chapter above. Return valid JSON only."""
 
 
+def _normalize_for_match(text: str) -> str:
+    """Normalize text for quote matching."""
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+    }
+    for src, dest in replacements.items():
+        text = text.replace(src, dest)
+    return " ".join(text.split())
+
+
+def _quote_in_text(quote: str, text: str) -> bool:
+    """Check if quote exists in source text."""
+    if not quote or not text:
+        return False
+    return _normalize_for_match(quote) in _normalize_for_match(text)
+
+
 def _write_extraction(
     chunk: Chapter, entity_type: str, output_dir: Path, payload: dict
 ) -> None:
-    entities = [Entity(**e) for e in payload.get("entities", [])]
+    """Validate quotes and assign fact IDs before writing extraction."""
+    fact_seq = 1
+    validated_entities = []
+    
+    for ent_data in payload.get("entities", []):
+        validated_infos = []
+        
+        for info in ent_data.get("information", []):
+            quote = info.get("quote", "").strip()
+            
+            # Extraction-time validation: reject hallucinated quotes
+            if not _quote_in_text(quote, chunk.text):
+                logger.warning(
+                    "Hallucinated quote in %s (%s) for entity '%s': %.50s...",
+                    chunk.chunk_id,
+                    entity_type,
+                    ent_data.get("name", "Unknown"),
+                    quote,
+                )
+                continue  # Skip this fact
+            
+            # Assign fact ID using source filename for easy verification: {source_file}#{seq}
+            # e.g., "Excession_split_006#003" maps to books/excession/Excession_split_006.md
+            info["id"] = f"{chunk.chunk_id}#{fact_seq:03d}"
+            fact_seq += 1
+            validated_infos.append(info)
+        
+        # Update entity with validated facts
+        ent_data["information"] = validated_infos
+        validated_entities.append(ent_data)
+    
+    # Build extraction with validated entities
+    entities = [Entity(**e) for e in validated_entities]
     extraction = EntityExtraction(
         chunk_id=chunk.chunk_id,
         chapter_title=chunk.title,
@@ -412,6 +465,7 @@ def _write_extraction(
     )
     output_path = output_dir / f"{chunk.chunk_id}_{entity_type}.json"
     write_json(extraction.model_dump(), output_path)
+
 
 
 def extract_entities_for_book(

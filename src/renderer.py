@@ -18,7 +18,10 @@ from .utils import ensure_dir, read_json, slugify
 
 logger = logging.getLogger(__name__)
 
-CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+# Pattern to match fact IDs like [excession_ch001#003] - flexible on digit count
+FACT_ID_PATTERN = re.compile(r"\[([A-Za-z0-9_-]+#\d+)\]")
+# Legacy pattern for integer citations like [1] or [1,2]
+LEGACY_CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 # Global entity lookup: maps slugified names to (entity_type, slug)
 # Built during render_all() and used for cross-entity linking
@@ -83,33 +86,59 @@ def _copy_assets() -> None:
 def _move_citations_after_punctuation(text: str) -> str:
     """Move citation markers from before punctuation to after.
     
-    Transforms: 'sentence [5].' -> 'sentence.' [5]
+    Transforms: 'sentence [Excession_split_036#007].' -> 'sentence.' [Excession_split_036#007]
     Handles: .!? followed by citation markers
     """
     if not text:
         return text
-    # Pattern: match citation(s) followed by punctuation
-    # [5]. or [5,6]. or [5][6]. etc
-    pattern = re.compile(r'(\[[\d,\s\]\[]+\])([.!?])')
+    # Pattern: match fact ID citation(s) followed by punctuation
+    pattern = re.compile(r'(\[[A-Za-z0-9_#-]+\])([.!?])')
     return pattern.sub(r'\2 \1', text)
 
 
-def _link_citations(text: str) -> Markup:
-    """Convert [N] markers to clickable citation links."""
+def _build_citation_map(citations: list) -> dict:
+    """Build a mapping from fact_id to sequential number for display."""
+    citation_map = {}
+    for i, citation in enumerate(citations, 1):
+        cid = getattr(citation, 'id', None) or citation.get('id') if isinstance(citation, dict) else citation.id
+        if cid:
+            # Normalize to lowercase for consistent lookup
+            citation_map[str(cid).lower()] = i
+    return citation_map
+
+
+def _link_citations(text: str, citation_map: dict = None) -> Markup:
+    """Convert [fact_id] or [N] markers to clickable citation links with numbers."""
     if not text:
         return Markup("")
-    
+
     # First, move citations after punctuation
     text = _move_citations_after_punctuation(text)
 
-    def repl(match: re.Match[str]) -> str:
-        numbers = [n.strip() for n in match.group(1).split(",") if n.strip()]
-        return ", ".join(
-            f'<a href="#cite-{num}" class="citation-link" data-citation-id="{num}">[{num}]</a>'
-            for num in numbers
-        )
+    # Check if this text uses fact IDs or legacy integers
+    has_fact_ids = FACT_ID_PATTERN.search(text) is not None
 
-    return Markup(CITATION_PATTERN.sub(repl, text))
+    if has_fact_ids:
+        def repl(match: re.Match[str]) -> str:
+            fact_id = match.group(1)
+            fact_id_lower = fact_id.lower()
+            # Use slugified fact_id for anchor (replace # with -)
+            anchor_id = fact_id_lower.replace('#', '-')
+            # Display sequential number if we have a mapping, otherwise show fact_id
+            display_num = citation_map.get(fact_id_lower, fact_id) if citation_map else fact_id
+            return f'<a href="#cite-{anchor_id}" class="citation-link" data-citation-id="{fact_id_lower}">[{display_num}]</a>'
+        return Markup(FACT_ID_PATTERN.sub(repl, text))
+    else:
+        # Legacy integer citations
+        def repl_legacy(match: re.Match[str]) -> str:
+            nums = [n.strip() for n in match.group(1).split(",") if n.strip()]
+            links = []
+            for num in nums:
+                anchor_id = num
+                display_num = citation_map.get(num, num) if citation_map else num
+                links.append(f'<a href="#cite-{anchor_id}" class="citation-link" data-citation-id="{num}">[{display_num}]</a>')
+            return "".join(links)
+        return Markup(LEGACY_CITATION_PATTERN.sub(repl_legacy, text))
 
 
 def _base_chunk_id(chunk_id: str) -> str:
@@ -177,11 +206,14 @@ def _render_articles_with_lookup(entity_type: str, articles: List[Article]) -> N
     for article in articles:
         out_path = output_dir / f"{article.slug}.html"
         root = _root_path_for(out_path)
+        # Build citation_map for numbered display
+        citation_map = _build_citation_map(article.citations)
         html = template.render(
             title=article.entity_name,
             article=article,
             entity_type=entity_type,
             root_path=root,
+            citation_map=citation_map,
             citations_json=json.dumps(
                 [c.model_dump() for c in article.citations], ensure_ascii=False
             ),

@@ -16,16 +16,16 @@ from .utils import read_json, slugify, utc_now, write_json
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = SYSTEM_PROMPT = """You are writing a comprehensive wiki article for a Culture series encyclopedia. 
+SYSTEM_PROMPT = """You are writing a comprehensive wiki article for a Culture series encyclopedia.
 
 CRITICAL REQUIREMENT:
 You MUST include EVERY fact provided below. Do not skip, summarize, or editorially select facts.
-The extraction stage has already determined what is significant. Your job is to weave ALL provided 
+The extraction stage has already determined what is significant. Your job is to weave ALL provided
 facts into a coherent article, not to judge what's important.
 
 WRITING GUIDELINES:
 - Write in an engaging, encyclopedic style that captures the drama and nuance of the source material
-- EVERY factual claim must have an inline citation in the format [N] where N is the citation number
+- EVERY factual claim must have an inline citation using the EXACT fact ID provided (e.g., [excession_ch001#003])
 - Use ONLY the provided facts and quotes—do not add information not present in the sources
 - Include ALL facts provided, even if they seem minor or repetitive
 - Write in flowing prose, not bullet points
@@ -34,7 +34,7 @@ WRITING GUIDELINES:
 STRUCTURE REQUIREMENTS:
 For characters, include sections covering (where applicable):
 - Background and origins
-- Physical description and distinguishing traits  
+- Physical description and distinguishing traits
 - Personality and psychology
 - Key relationships (with specific details about each)
 - Chronological narrative of their role in events
@@ -72,13 +72,18 @@ For events, include:
 - Significance in the broader context
 
 CITATION RULES:
+- Use the EXACT fact IDs provided (format: [chunk_id#seq], e.g., [excession_ch001#003])
+- Do NOT renumber citations—use the IDs exactly as given
 - Cite liberally—almost every sentence should have at least one citation
-- Group related citations: [1][2] or [1,2] for claims supported by multiple sources
+- Group related citations: [excession_ch001#003][excession_ch002#005] for claims supported by multiple sources
 - Prefer direct quotes for dramatic or significant moments
 - You should have roughly as many citations as facts provided"""
 
+# Pattern to match fact ID citations like [excession_ch001#003] or [excession_ch001#001, excession_ch002#005]
+FACT_ID_PATTERN = re.compile(r"\[([a-z0-9_#,\s]+)\]", re.IGNORECASE)
+# Legacy pattern for integer citations (kept for backwards compatibility during transition)
 CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
-CHUNK_ID_PATTERN = re.compile(r"([a-z0-9-]+_ch\d{3}(?:_p\d{2})?)")
+CHUNK_ID_PATTERN = re.compile(r"([a-z0-9-]+_(?:ch\d{3}|split_\d{3})(?:_p\d{2})?)")
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
     base_dir = config.EXTRACTIONS_DIR / entity_type
@@ -133,13 +138,30 @@ def _quote_in_text(quote: str, text: str) -> bool:
     return _normalize_for_match(quote) in _normalize_for_match(text)
 
 
-def _extract_citation_ids(text: str) -> set[int]:
-    ids: set[int] = set()
+def _extract_fact_ids(text: str) -> set[str]:
+    """Extract fact IDs from text like [excession_ch001#003] or [excession_ch001#001][excession_ch002#005]."""
+    ids: set[str] = set()
+    # Pattern matches fact IDs: word characters, underscores, hyphens, followed by # and digits
+    fact_id_pattern = re.compile(r"\[([a-z0-9_-]+#\d+)\]", re.IGNORECASE)
+    for match in fact_id_pattern.finditer(text or ""):
+        ids.add(match.group(1).lower())  # Normalize to lowercase
+    return ids
+
+
+def _extract_citation_ids(text: str) -> set[str]:
+    """Extract citation IDs from text. Supports both fact IDs and legacy integer IDs."""
+    # Try fact ID format first
+    fact_ids = _extract_fact_ids(text)
+    if fact_ids:
+        return fact_ids
+
+    # Fall back to legacy integer format for backwards compatibility
+    ids: set[str] = set()
     for match in CITATION_PATTERN.finditer(text or ""):
         numbers = [n.strip() for n in match.group(1).split(",") if n.strip()]
         for num in numbers:
             try:
-                ids.add(int(num))
+                ids.add(str(int(num)))  # Convert to string for consistent typing
             except ValueError:
                 continue
     return ids
@@ -159,8 +181,15 @@ def _count_sentences(text: str) -> int:
 
 
 def _count_citations_in_text(text: str) -> int:
-    """Count number of citation markers [N] in text."""
-    return len(CITATION_PATTERN.findall(text or ""))
+    """Count number of citation markers in text (both fact IDs and legacy integers)."""
+    if not text:
+        return 0
+    # Count fact ID citations [chunk_id#seq]
+    fact_id_count = len(re.findall(r"\[[a-z0-9_-]+#\d+\]", text, re.IGNORECASE))
+    if fact_id_count > 0:
+        return fact_id_count
+    # Fall back to legacy integer citations [N]
+    return len(CITATION_PATTERN.findall(text))
 
 
 def _check_citation_density(summary: str, sections: List, entity_name: str) -> bool:
@@ -199,10 +228,12 @@ def _normalize_chunk_id(raw: str | None) -> str:
     if not raw:
         return ""
     cleaned = raw.strip().lower()
+    # If it's a split file ID (excession_split_010), it might not match our stricter chXXX pattern
     match = CHUNK_ID_PATTERN.search(cleaned)
     if match:
         return match.group(1)
-    return cleaned
+    # Fallback to just the lowercased segment before #
+    return cleaned.split("#")[0]
 
 
 def _base_chunk_id(chunk_id: str) -> str:
@@ -243,11 +274,12 @@ def _format_extractions_for_prompt(
             fact = info.get("fact", "").strip()
             quote = info.get("quote", "").strip()
             context = info.get("location") or ""
+            fact_id = info.get("id", "")
             if not _quote_in_text(quote, chapter.text):
                 continue
             valid_infos.append(info)
             lines.append(
-                f"  • Fact: {fact}\n    Quote: \"{quote}\"\n    Context: {context}"
+                f"  • [{fact_id}] Fact: {fact}\n    Quote: \"{quote}\"\n    Context: {context}"
             )
         if not valid_infos:
             lines.pop()
@@ -260,8 +292,8 @@ def build_synthesis_prompt(
     appears_in = ", ".join(merged.appears_in)
     aliases_str = ", ".join(merged.aliases) if merged.aliases else "None"
     
-    # Count facts for reference
-    fact_count = formatted_extractions.count("• Fact:")
+    # Count facts for reference (format is "• [fact_id] Fact:" so count "] Fact:")
+    fact_count = formatted_extractions.count("] Fact:")
 
     return f"""{SYSTEM_PROMPT}
 
@@ -276,12 +308,20 @@ EXTRACTED INFORMATION (use ALL of this):
 {formatted_extractions}
 
 Return a JSON object with:
-- summary: A compelling 2-3 sentence overview of the entity
-- sections: Array of objects with "title" and "content" (with [N] inline citations throughout). Include 4-8 sections for major entities.
-- citations: Array of objects with fields: id (integer), book, chapter (optional), quote (COPY EXACTLY from the Quote field above - do not paraphrase), chunk_id (copy from Source chunk ID above)
+- summary: A compelling 2-3 sentence overview of the entity (with [fact_id] citations)
+- sections: Array of objects with "title" and "content" (with [fact_id] inline citations throughout, e.g., [excession_ch001#003]). Include 4-8 sections for major entities.
+- citations: Array of objects with fields:
+  - id: The EXACT fact ID string (e.g., "excession_ch001#003") - copy from the bracketed ID before each fact
+  - book: Book title
+  - chapter: Chapter title (optional)
+  - quote: COPY EXACTLY from the Quote field - do not paraphrase
+  - chunk_id: The chunk portion of the fact ID (e.g., "excession_ch001")
 - related_entities: Array of names of other entities mentioned (for cross-linking)
 
-CRITICAL: For each citation, the "quote" field must be copied EXACTLY from the provided quotes above. Do not paraphrase or generate new quotes."""
+CRITICAL:
+- Use the EXACT fact IDs provided in brackets before each fact (e.g., [excession_ch001#003])
+- The "id" field in citations must be the complete fact ID string, NOT a number
+- The "quote" field must be copied EXACTLY from the provided quotes above"""
 
 
 def _build_chunk_context_map() -> Dict[str, Chapter]:
@@ -298,6 +338,9 @@ def _build_chunk_context_map() -> Dict[str, Chapter]:
             continue
         for chapter in chapters:
             chunk_map[chapter.chunk_id] = chapter
+            # Also index by source filename base (lowercased) to match Fact ID format
+            source_file_base = chapter.source_file.split(".")[0].lower()
+            chunk_map[source_file_base] = chapter
     return chunk_map
 
 
@@ -376,10 +419,14 @@ def synthesize_articles(
                     )
                     chapter = chunk_map.get(chunk_id)
                     if chapter is None:
+                        # Log available keys in chunk_map to help debug which one is missing
+                        sample_keys = list(chunk_map.keys())[:5]
                         logger.warning(
-                            "Unknown chunk_id for citation in %s: %r",
+                            "Unknown chunk_id for citation in %s: %r (normalized: %r). Available sample keys: %s",
                             merged.canonical_name,
                             raw_chunk_id,
+                            chunk_id,
+                            sample_keys,
                         )
                         continue
                     quote = str(item.get("quote", "")).strip()
@@ -390,8 +437,11 @@ def synthesize_articles(
                             chunk_id,
                         )
                         continue
+                    # Normalize the fact ID to lowercase
+                    fact_id = str(item.get("id", "")).lower()
                     item = {
                         **item,
+                        "id": fact_id,
                         "chunk_id": chunk_id,
                         "source_file": chapter.source_file,
                         "chapter": chapter.title,
@@ -419,7 +469,8 @@ def synthesize_articles(
                     prominence_score=prominence_score,
                     generated_at=utc_now(),
                 )
-                cited_ids = set(c.id for c in citations)
+                # Normalize citation IDs to lowercase for consistent comparison
+                cited_ids = set(str(c.id).lower() for c in citations)
                 referenced_ids = set()
                 referenced_ids.update(_extract_citation_ids(article.summary))
                 for section in sections:

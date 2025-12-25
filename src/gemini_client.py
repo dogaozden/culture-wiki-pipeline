@@ -104,7 +104,6 @@ class GeminiClient:
                 self.client.models.generate_content(
                     model=self.model_name,
                     contents="ping",
-                    config={"max_output_tokens": 1},
                 )
             except Exception as exc:
                 raise RuntimeError(
