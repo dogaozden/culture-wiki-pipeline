@@ -54,10 +54,28 @@ def main() -> None:
         action="store_true",
         help="For clean stage: skip confirmation prompt",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: 16)",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=None,
+        help="Max synthesis retries on citation failures (default: 10)",
+    )
 
     args = parser.parse_args()
     if args.clean and args.stage != "clean":
         parser.error("--clean requires --stage clean")
+    
+    # Override config if flags provided
+    from src import config
+    if args.workers is not None:
+        config.PARALLEL_WORKERS = args.workers
+    
     pipeline = Pipeline()
     pipeline.run(
         stage=args.stage,
@@ -68,6 +86,7 @@ def main() -> None:
         limit=args.limit,
         clean_targets=args.clean,
         yes=args.yes,
+        max_retries=args.max_retries,
     )
 
 

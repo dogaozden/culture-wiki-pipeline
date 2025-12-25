@@ -302,9 +302,12 @@ def _build_chunk_context_map() -> Dict[str, Chapter]:
 
 
 def synthesize_articles(
-    entity_type: str, client: GeminiClient, force: bool = False
+    entity_type: str, client: GeminiClient, force: bool = False, max_retries: int = None
 ) -> None:
     """Generate wiki articles for a specific entity type."""
+    # Default max retries if not specified
+    MAX_SYNTHESIS_RETRIES = max_retries if max_retries is not None else 10
+    
     merged_entities = _load_merged_entities(entity_type)
     extractions = _load_extractions(entity_type)
     chunk_map = _build_chunk_context_map()
@@ -351,99 +354,138 @@ def synthesize_articles(
                 outfile.unlink()
             return
         prompt = build_synthesis_prompt(merged, entity_type, formatted)
-        try:
-            payload = client.synthesize(prompt)
-            citations_payload = payload.get("citations", [])
-            citations: List[Citation] = []
-            for item in citations_payload:
-                if not isinstance(item, dict):
-                    logger.warning(
-                        "Skipping malformed citation for %s: %r",
-                        merged.canonical_name,
-                        item,
+        
+        for attempt in range(1, MAX_SYNTHESIS_RETRIES + 1):
+            try:
+                # Use unique cache key per attempt to bypass cache on retries
+                cache_key = f"{entity_type}:{slug}" if attempt == 1 else f"{entity_type}:{slug}:retry{attempt}"
+                payload = client.synthesize(prompt, cache_key=cache_key)
+                citations_payload = payload.get("citations", [])
+                citations: List[Citation] = []
+                for item in citations_payload:
+                    if not isinstance(item, dict):
+                        logger.warning(
+                            "Skipping malformed citation for %s: %r",
+                            merged.canonical_name,
+                            item,
+                        )
+                        continue
+                    raw_chunk_id = item.get("chunk_id")
+                    chunk_id = _normalize_chunk_id(
+                        str(raw_chunk_id) if raw_chunk_id is not None else ""
                     )
-                    continue
-                raw_chunk_id = item.get("chunk_id")
-                chunk_id = _normalize_chunk_id(
-                    str(raw_chunk_id) if raw_chunk_id is not None else ""
-                )
-                chapter = chunk_map.get(chunk_id)
-                if chapter is None:
-                    logger.warning(
-                        "Unknown chunk_id for citation in %s: %r",
-                        merged.canonical_name,
-                        raw_chunk_id,
-                    )
-                    continue
-                quote = str(item.get("quote", "")).strip()
-                if not _quote_in_text(quote, chapter.text):
-                    logger.warning(
-                        "Citation quote not found for %s (%s)",
-                        merged.canonical_name,
-                        chunk_id,
-                    )
-                    continue
-                item = {
-                    **item,
-                    "chunk_id": chunk_id,
-                    "source_file": chapter.source_file,
-                    "chapter": chapter.title,
-                    "book": chapter.book_title,
-                }
-                citations.append(Citation(**item))
+                    chapter = chunk_map.get(chunk_id)
+                    if chapter is None:
+                        logger.warning(
+                            "Unknown chunk_id for citation in %s: %r",
+                            merged.canonical_name,
+                            raw_chunk_id,
+                        )
+                        continue
+                    quote = str(item.get("quote", "")).strip()
+                    if not _quote_in_text(quote, chapter.text):
+                        logger.warning(
+                            "Citation quote not found for %s (%s)",
+                            merged.canonical_name,
+                            chunk_id,
+                        )
+                        continue
+                    item = {
+                        **item,
+                        "chunk_id": chunk_id,
+                        "source_file": chapter.source_file,
+                        "chapter": chapter.title,
+                        "book": chapter.book_title,
+                    }
+                    citations.append(Citation(**item))
 
-            sections = [
-                ArticleSection(**section) for section in payload.get("sections", [])
-            ]
-            related_entities = payload.get("related_entities", []) or []
-            if not isinstance(related_entities, list):
-                related_entities = []
-            prominence_score = _compute_prominence_score(citations, related_entities)
-            article = Article(
-                entity_name=merged.canonical_name,
-                entity_type=entity_type.rstrip("s"),
-                slug=slug,
-                aliases=merged.aliases,
-                appears_in=merged.appears_in,
-                summary=payload.get("summary", ""),
-                sections=sections,
-                citations=citations,
-                related_entities=related_entities,
-                prominence_score=prominence_score,
-                generated_at=utc_now(),
-            )
-            cited_ids = set(c.id for c in citations)
-            referenced_ids = set()
-            referenced_ids.update(_extract_citation_ids(article.summary))
-            for section in sections:
-                referenced_ids.update(_extract_citation_ids(section.content))
-            if referenced_ids and not referenced_ids.issubset(cited_ids):
-                missing = sorted(referenced_ids - cited_ids)
-                logger.warning(
-                    "Missing citations for %s; skipping article. Missing ids: %s",
-                    merged.canonical_name,
-                    missing,
+                sections = [
+                    ArticleSection(**section) for section in payload.get("sections", [])
+                ]
+                related_entities = payload.get("related_entities", []) or []
+                if not isinstance(related_entities, list):
+                    related_entities = []
+                prominence_score = _compute_prominence_score(citations, related_entities)
+                article = Article(
+                    entity_name=merged.canonical_name,
+                    entity_type=entity_type.rstrip("s"),
+                    slug=slug,
+                    aliases=merged.aliases,
+                    appears_in=merged.appears_in,
+                    summary=payload.get("summary", ""),
+                    sections=sections,
+                    citations=citations,
+                    related_entities=related_entities,
+                    prominence_score=prominence_score,
+                    generated_at=utc_now(),
                 )
-                if force and outfile.exists():
-                    outfile.unlink()
-                return
+                cited_ids = set(c.id for c in citations)
+                referenced_ids = set()
+                referenced_ids.update(_extract_citation_ids(article.summary))
+                for section in sections:
+                    referenced_ids.update(_extract_citation_ids(section.content))
+                
+                # Check if all referenced citations exist
+                if referenced_ids and not referenced_ids.issubset(cited_ids):
+                    missing = sorted(referenced_ids - cited_ids)
+                    if attempt < MAX_SYNTHESIS_RETRIES:
+                        logger.warning(
+                            "Missing citations for %s (attempt %d/%d). Missing ids: %s. Retrying...",
+                            merged.canonical_name,
+                            attempt,
+                            MAX_SYNTHESIS_RETRIES,
+                            missing,
+                        )
+                        continue  # Retry
+                    else:
+                        logger.error(
+                            "Missing citations for %s after %d attempts; skipping. Missing ids: %s",
+                            merged.canonical_name,
+                            MAX_SYNTHESIS_RETRIES,
+                            missing,
+                        )
+                        if force and outfile.exists():
+                            outfile.unlink()
+                        return
 
             # Check citation density - reject articles with too few citations
-            if not _check_citation_density(article.summary, sections, merged.canonical_name):
-                logger.warning(
-                    "Skipping article for %s due to low citation density",
-                    merged.canonical_name,
-                )
-                if force and outfile.exists():
-                    outfile.unlink()
-                return
+                if not _check_citation_density(article.summary, sections, merged.canonical_name):
+                    if attempt < MAX_SYNTHESIS_RETRIES:
+                        logger.warning(
+                            "Low citation density for %s (attempt %d/%d). Retrying...",
+                            merged.canonical_name,
+                            attempt,
+                            MAX_SYNTHESIS_RETRIES,
+                        )
+                        continue  # Retry
+                    else:
+                        logger.warning(
+                            "Skipping article for %s due to low citation density after %d attempts",
+                            merged.canonical_name,
+                            MAX_SYNTHESIS_RETRIES,
+                        )
+                        if force and outfile.exists():
+                            outfile.unlink()
+                        return
 
-            write_json(article.model_dump(), outfile)
-            logger.info("Synthesized article for %s", merged.canonical_name)
-        except Exception as exc:
-            logger.error("Failed to synthesize %s: %s", merged.canonical_name, exc)
-            if force:
-                raise
+                # Success! Write the article and exit retry loop
+                write_json(article.model_dump(), outfile)
+                logger.info("Synthesized article for %s", merged.canonical_name)
+                break  # Exit retry loop on success
+                
+            except Exception as exc:
+                if attempt < MAX_SYNTHESIS_RETRIES:
+                    logger.warning(
+                        "Failed to synthesize %s (attempt %d/%d): %s. Retrying...",
+                        merged.canonical_name,
+                        attempt,
+                        MAX_SYNTHESIS_RETRIES,
+                        exc,
+                    )
+                    continue
+                logger.error("Failed to synthesize %s after %d attempts: %s", merged.canonical_name, MAX_SYNTHESIS_RETRIES, exc)
+                if force:
+                    raise
 
     if config.PARALLEL_WORKERS <= 1:
         for merged in pending:

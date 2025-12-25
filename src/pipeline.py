@@ -60,6 +60,7 @@ class Pipeline:
         limit: Optional[int] = None,
         clean_targets: Optional[List[str]] = None,
         yes: bool = False,
+        max_retries: Optional[int] = None,
     ) -> None:
         stages = ["chunk", "extract", "merge", "synthesize", "render", "clean"]
         if stage != "all" and stage not in stages:
@@ -81,7 +82,7 @@ class Pipeline:
         if stage in ("merge", "all"):
             self.merge(entity_type=entity_type, force=force)
         if stage in ("synthesize", "all"):
-            self.synthesize(entity_type=entity_type, force=force)
+            self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries)
         if stage in ("render", "all"):
             self.render()
 
@@ -121,14 +122,14 @@ class Pipeline:
             merge_entities(et, force=force)
 
     def synthesize(
-        self, entity_type: Optional[str] = None, force: bool = False
+        self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None
     ) -> None:
         from .synthesizer import synthesize_articles
 
         client = self._get_client()
         types = [entity_type] if entity_type else config.ENTITY_TYPES
         for et in types:
-            synthesize_articles(et, client, force=force)
+            synthesize_articles(et, client, force=force, max_retries=max_retries)
 
     def render(self) -> None:
         from .renderer import render_all
