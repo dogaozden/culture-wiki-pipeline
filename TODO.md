@@ -6,16 +6,13 @@
 - [x] Prominence-based sorting
 - [x] Citation verification (quote existence + fact-quote alignment checks)
 - [x] **Fix alias hallucinations** — Tightened extraction prompts + merge filter (Dec 24)
-- [x] **Synthesis uses ALL facts** — Removed editorial discretion, 92% fact coverage (Dec 24)
+- [x] **Synthesis uses ALL facts** — Removed editorial discretion (Dec 24)
 - [x] **Clickable citations** — Smooth scroll + highlight animation (Dec 24)
 - [x] **Citation placement** — Post-processor moves citations after punctuation (Dec 24)
-
-## 🔄 In Progress
-- [ ] Re-run full pipeline with updated prompts to verify alias fix
-  ```bash
-  python run.py --clean cache --yes
-  python run.py --stage all --book excession --force
-  ```
+- [x] **Extraction improvements** — Relationships, prominence scoring, longer quotes (Dec 25)
+- [x] **Synthesis retry logic** — Auto-retry on citation validation failures, max 10 attempts (Dec 25)
+- [x] **CLI flags** — `--workers` and `--max-retries` for runtime config (Dec 25)
+- [x] **Full pipeline run** — 123 character articles including Dajeil Gelian (Dec 25)
 
 ## 📋 Near-Term
 
@@ -63,10 +60,12 @@
 
 ## 🏗️ Architecture Notes
 
-### Citation Verification (Already Implemented)
-The synthesizer validates quotes in two places:
+### Citation Verification & Retry Logic
+The synthesizer validates citations and retries on failure:
 1. `_format_extractions_for_prompt()` — drops facts with quotes not found in source
-2. `_synthesize_one()` — drops citations with invalid quotes, skips articles with dangling refs
+2. `_synthesize_one()` — drops citations with invalid quotes
+3. **Retry loop** — If LLM references non-existent citation IDs, retries up to 10x (configurable)
+4. **Failure logging** — After max retries, logs `[ERROR]` with entity name and missing IDs
 
 ### Cross-Book Linking Strategy
 Current merge algorithm already handles this:
