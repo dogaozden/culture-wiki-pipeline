@@ -70,7 +70,7 @@ For each character provide:
 
 - information: Extract ALL notable facts about this character in THIS chapter.
   Be thorough — extract every distinct piece of information.
-  
+
   Look for facts about:
   * Physical appearance and description
   * Actions taken and behaviors
