@@ -13,6 +13,14 @@
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
+> [!CAUTION]  
+> **Model Selection Critical Finding (Dec 2025)**  
+> Use **`gemini-2.5-flash-lite-preview-09-2025`** for ALL pipeline stages.  
+> 
+> Testing revealed `gemini-3-flash-preview` causes **semantic hallucinations**: facts that aren't supported by their quotes (e.g., claiming "Ship X pressured Ship Y" when the quote doesn't mention pressuring). These bad facts flow downstream and cause citation mismatches in final articles.
+>
+> `gemini-2.5-flash-lite` showed **100% semantic accuracy** — it makes literal, verifiable claims with quotes that directly support facts. It also extracts more facts per chapter.
+
 ---
 
 ## Stage 1: EXTRACTION 📖

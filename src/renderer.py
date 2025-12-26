@@ -368,11 +368,14 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
     
     for article in book_arts:
         out_path = output_dir / f"{article.slug}.html"
+        # Build citation_map for numbered display
+        citation_map = _build_citation_map(article.citations)
         html = template.render(
             title=article.entity_name,
             article=article,
             entity_type=entity_type,
             root_path=_root_path_for(out_path),
+            citation_map=citation_map,
             citations_json=json.dumps(
                 [c.model_dump() for c in article.citations], ensure_ascii=False
             ),

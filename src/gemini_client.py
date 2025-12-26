@@ -60,7 +60,9 @@ class GeminiClient:
     # --- Caching helpers -------------------------------------------------
     def _cache_path(self, namespace: str, key_material: str) -> Path:
         key_hash = hashlib.sha256(key_material.encode("utf-8")).hexdigest()
-        ns_dir = ensure_dir(self.cache_dir / namespace)
+        # Include model name in cache path so different models have separate caches
+        model_slug = self.model_name.replace("/", "_").replace(":", "_")
+        ns_dir = ensure_dir(self.cache_dir / model_slug / namespace)
         return ns_dir / f"{key_hash}.json"
 
     def _read_cache(self, path: Path) -> Optional[dict]:

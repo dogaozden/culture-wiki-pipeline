@@ -77,6 +77,11 @@ def main() -> None:
         default=None,
         help="Gemini model to use (e.g., gemini-2.5-flash-lite, gemini-3-flash-preview). Default: gemini-3-flash-preview",
     )
+    parser.add_argument(
+        "--use-cache",
+        action="store_true",
+        help="Enable LLM response caching (default: off). Cache is model-specific.",
+    )
 
     args = parser.parse_args()
     if args.clean and args.stage != "clean":
@@ -86,6 +91,7 @@ def main() -> None:
     from src import config
     if args.workers is not None:
         config.PARALLEL_WORKERS = args.workers
+    config.USE_CACHE = args.use_cache
     if args.model is not None:
         config.GEMINI_MODEL = args.model
     
