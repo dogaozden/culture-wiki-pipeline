@@ -98,6 +98,6 @@
 
 {% block citations_data %}
 <script id="citations-data" type="application/json">
-{{ citations_json }}
+{{ citations_json | safe }}
 </script>
 {% endblock %}
