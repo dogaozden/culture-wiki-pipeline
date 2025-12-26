@@ -169,6 +169,79 @@ def _filter_ships_from_characters(merged: Dict[str, MergedEntity]) -> Dict[str, 
     return filtered
 
 
+def _load_known_ship_names() -> set[str]:
+    """Load all ship names from ships_and_minds for cross-reference filtering."""
+    ship_file = config.ENTITIES_DIR / "ships_and_minds.json"
+    if not ship_file.exists():
+        return set()
+    
+    data = read_json(ship_file)
+    ship_names: set[str] = set()
+    for ent in data.get("entities", []):
+        ship_names.add(slugify(ent.get("canonical_name", "")))
+        for alias in ent.get("aliases", []):
+            ship_names.add(slugify(alias))
+    return ship_names
+
+
+def _filter_known_ships(merged: Dict[str, MergedEntity], entity_type: str) -> Dict[str, MergedEntity]:
+    """Remove entities that match known ship names from ships_and_minds."""
+    known_ship_slugs = _load_known_ship_names()
+    if not known_ship_slugs:
+        return merged
+    
+    filtered = {}
+    removed_count = 0
+    for key, entity in merged.items():
+        name = entity.canonical_name.strip()
+        slug = slugify(name)
+        
+        # Check if canonical name matches a known ship
+        if slug in known_ship_slugs:
+            logger.debug("Filtering known ship from %s: %s", entity_type, name)
+            removed_count += 1
+            continue
+        
+        # Strip "The " prefix and check again (e.g., "The Grey Area" -> "Grey Area")
+        name_no_the = name
+        if name.lower().startswith("the "):
+            name_no_the = name[4:]
+            slug_no_the = slugify(name_no_the)
+            if slug_no_the in known_ship_slugs:
+                logger.debug("Filtering ship (stripped 'The') from %s: %s", entity_type, name)
+                removed_count += 1
+                continue
+        
+        # Check if any known ship name is contained in this entity name
+        # (catches "Sleeper's three warships", "xGSV Anticipation...", etc.)
+        name_lower = name.lower()
+        is_ship_variant = False
+        for ship_slug in known_ship_slugs:
+            # Skip very short slugs to avoid false positives
+            if len(ship_slug) < 5:
+                continue
+            # Check if ship name is in entity name
+            if ship_slug.replace("-", " ") in name_lower.replace("'s", "").replace("'", ""):
+                logger.debug("Filtering ship variant from %s: %s (contains '%s')", entity_type, name, ship_slug)
+                is_ship_variant = True
+                break
+        if is_ship_variant:
+            removed_count += 1
+            continue
+        
+        # Also check by ship prefix pattern (GSV, GCU, xGSV, etc.)
+        if _SHIP_FILTER_PATTERN.match(name) or name.lower().startswith("xgsv "):
+            logger.debug("Filtering ship prefix from %s: %s", entity_type, name)
+            removed_count += 1
+            continue
+        
+        filtered[key] = entity
+    
+    if removed_count > 0:
+        logger.info("Filtered %d known ships from %s", removed_count, entity_type)
+    return filtered
+
+
 def _filter_entities_from_events(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
     """Remove character/ship/location names that leaked into events during extraction."""
     # Load known entities from other types to check against
@@ -318,9 +391,9 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
 
     merged = _consolidate_overlaps(merged, entity_type)
     
-    # Filter ships from all entity types except ships_and_minds (they leak everywhere)
+    # Filter known ships from all entity types except ships_and_minds
     if entity_type in ("characters", "technology", "factions", "locations"):
-        merged = _filter_ships_from_characters(merged)
+        merged = _filter_known_ships(merged, entity_type)
     
     # Filter known entities from events (characters, ships, locations leak into events)
     if entity_type == "events":
@@ -340,13 +413,21 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
             # Import here to avoid circular dependency
             import sys
             sys.path.insert(0, str(config.PROJECT_ROOT))
-            from deduplicate_entities import run_deduplication
+            from deduplicate_entities import run_deduplication, run_cross_entity_dedup
             
             if client is None:
                 client = GeminiClient()
+            
+            # Within-entity dedup
             removed = run_deduplication(entity_type, client)
             if removed > 0:
                 logger.info("LLM deduplication removed %d duplicates from %s", removed, entity_type)
+            
+            # Cross-entity dedup: remove ships from non-ship entity types
+            if entity_type in ("characters", "technology", "factions", "locations"):
+                cross_removed = run_cross_entity_dedup(entity_type, client)
+                if cross_removed > 0:
+                    logger.info("Cross-entity dedup removed %d ships from %s", cross_removed, entity_type)
         except Exception as e:
             logger.warning("LLM deduplication failed for %s: %s", entity_type, e)
     else:

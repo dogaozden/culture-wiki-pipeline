@@ -322,6 +322,139 @@ def apply_deduplication(entity_type: str, duplicates: list[dict]) -> None:
     return removed
 
 
+# Cross-entity deduplication prompt
+CROSS_ENTITY_PROMPT = """You are an expert on Iain M. Banks' Culture series.
+
+I will show you entities from '{source_type}' that might actually be SHIPS (which belong in 'ships_and_minds').
+
+For reference, here are known ships from ships_and_minds:
+{ship_names}
+
+Your task: Identify which {source_type} entities are ACTUALLY ships/vessels.
+
+For each ship found, output:
+- "entity": the name from {source_type}
+- "matching_ship": the ship from ships_and_minds it matches (or null if it's a new ship)
+- "reason": brief explanation
+
+GUIDELINES:
+1. Ships include: GSVs, GCUs, ROUs, warships, vessels, any named Culture/Affront ships
+2. Things that CONTAIN ships (like "warship hangars") are NOT ships
+3. "The Sleeper" is the same as "Sleeper Service" - a GSV
+4. Be AGGRESSIVE - if it sounds like a ship name, flag it
+
+Output format:
+```json
+{{
+  "ships_found": [
+    {{"entity": "The Grey Area", "matching_ship": "Grey Area", "reason": "Same GCU with 'The' prefix"}},
+    {{"entity": "xGSV Something", "matching_ship": null, "reason": "Ship prefix xGSV"}}
+  ]
+}}
+```
+
+If no ships found:
+```json
+{{"ships_found": []}}
+```
+
+---
+{source_type} ENTITIES TO CHECK:
+
+"""
+
+
+def find_ships_in_entity_type(client: GeminiClient, source_type: str) -> list[dict]:
+    """
+    Use LLM to identify ships that leaked into another entity type.
+    Returns list of {"entity": name_to_remove, "matching_ship": ship_name_or_null}.
+    """
+    # Load source entities
+    source_entities = load_entities(source_type)
+    if not source_entities:
+        return []
+    
+    # Load ship names for reference
+    ships = load_entities("ships_and_minds")
+    ship_names = [s["canonical_name"] for s in ships[:50]]  # Top 50 for prompt
+    ship_names_str = ", ".join(ship_names)
+    
+    # Build prompt
+    entity_list = "\n".join(f"- {e['canonical_name']}" for e in source_entities)
+    prompt = CROSS_ENTITY_PROMPT.format(
+        source_type=source_type,
+        ship_names=ship_names_str
+    ) + entity_list
+    
+    logger.info("Checking %d %s entities for leaked ships...", len(source_entities), source_type)
+    
+    try:
+        response = client.client.models.generate_content(
+            model=client.model_name,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+            }
+        )
+        result = json.loads(response.text)
+        return result.get("ships_found", [])
+    except Exception as e:
+        logger.error("Cross-entity dedup failed for %s: %s", source_type, e)
+        return []
+
+
+def apply_cross_entity_dedup(source_type: str, ships_found: list[dict]) -> int:
+    """Remove identified ships from a non-ship entity type."""
+    if not ships_found:
+        return 0
+    
+    path = config.ENTITIES_DIR / f"{source_type}.json"
+    data = read_json(path)
+    entities = data.get("entities", [])
+    
+    # Build set of names to delete
+    delete_names = {s["entity"].lower() for s in ships_found}
+    
+    # Filter out ships
+    original_count = len(entities)
+    filtered = [
+        e for e in entities 
+        if e.get("canonical_name", "").lower() not in delete_names
+    ]
+    
+    removed = original_count - len(filtered)
+    if removed > 0:
+        logger.info("Removed %d ships from %s", removed, source_type)
+        data["entities"] = filtered
+        write_json(data, path)
+    
+    return removed
+
+
+def run_cross_entity_dedup(source_type: str, client: GeminiClient = None) -> int:
+    """
+    Run cross-entity LLM deduplication to remove ships from non-ship entity types.
+    Returns the number of entities removed.
+    """
+    if source_type == "ships_and_minds":
+        return 0  # Don't remove ships from ships!
+    
+    if client is None:
+        client = GeminiClient()
+    
+    ships_found = find_ships_in_entity_type(client, source_type)
+    
+    if not ships_found:
+        logger.info("No ships found in %s", source_type)
+        return 0
+    
+    logger.info("Found %d ships in %s:", len(ships_found), source_type)
+    for s in ships_found:
+        logger.info("  - %s -> %s (%s)", s["entity"], s.get("matching_ship", "new ship"), s["reason"])
+    
+    return apply_cross_entity_dedup(source_type, ships_found)
+
+
 def run_deduplication(entity_type: str, client: GeminiClient = None) -> int:
     """
     Run LLM deduplication on merged entities.
