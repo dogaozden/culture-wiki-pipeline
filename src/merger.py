@@ -49,7 +49,7 @@ import re
 _ALIAS_PATTERNS = [re.compile(p, re.IGNORECASE) for p in ALIAS_BLACKLIST_PATTERNS]
 
 
-def _is_valid_alias(alias: str) -> bool:
+def _is_valid_alias(alias: str, entity_type: str = None) -> bool:
     """Check if an alias is a proper name vs a descriptive phrase."""
     if not alias or not alias.strip():
         return False
@@ -64,12 +64,16 @@ def _is_valid_alias(alias: str) -> bool:
     # Very short aliases are often bad (single letters, pronouns)
     if len(normalized) < 2:
         return False
+    # Filter ship prefixes from non-ship entity types
+    if entity_type and entity_type != "ships_and_minds":
+        if _SHIP_FILTER_PATTERN.match(alias.strip()):
+            return False
     return True
 
 
-def _filter_aliases(aliases: List[str]) -> List[str]:
+def _filter_aliases(aliases: List[str], entity_type: str = None) -> List[str]:
     """Filter out hallucinated/descriptive aliases, keeping only proper names."""
-    return [a for a in aliases if _is_valid_alias(a)]
+    return [a for a in aliases if _is_valid_alias(a, entity_type)]
 
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
@@ -204,7 +208,7 @@ def _filter_entities_from_events(merged: Dict[str, MergedEntity]) -> Dict[str, M
     return filtered
 
 
-def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
+def _consolidate_overlaps(merged: Dict[str, MergedEntity], entity_type: str = None) -> Dict[str, MergedEntity]:
     """Merge entities that share any alias/name slug."""
     entities = list(merged.values())
     if not entities:
@@ -256,7 +260,7 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEn
         aliases.discard(canonical)
         consolidated[slugify(canonical)] = MergedEntity(
             canonical_name=canonical,
-            aliases=sorted(_filter_aliases(list(aliases))),
+            aliases=sorted(_filter_aliases(list(aliases), entity_type)),
             appears_in=sorted(appears_in),
             extraction_refs=sorted(extraction_refs),
         )
@@ -295,7 +299,7 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
 
             if existing_key:
                 record = merged[existing_key]
-                new_aliases = _filter_aliases(ent.aliases + [ent.name, record.canonical_name])
+                new_aliases = _filter_aliases(ent.aliases + [ent.name, record.canonical_name], entity_type)
                 record.aliases = sorted(
                     set(record.aliases + new_aliases)
                 )
@@ -307,15 +311,15 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
                 key = slugify(ent.name)
                 merged[key] = MergedEntity(
                     canonical_name=ent.name,
-                    aliases=sorted(_filter_aliases(list(ent.aliases))),
+                    aliases=sorted(_filter_aliases(list(ent.aliases), entity_type)),
                     appears_in=[book_slug],
                     extraction_refs=[extraction.chunk_id],
                 )
 
-    merged = _consolidate_overlaps(merged)
+    merged = _consolidate_overlaps(merged, entity_type)
     
-    # Filter ships from characters (they leak due to LLM not following instructions)
-    if entity_type == "characters":
+    # Filter ships from all entity types except ships_and_minds (they leak everywhere)
+    if entity_type in ("characters", "technology", "factions", "locations"):
         merged = _filter_ships_from_characters(merged)
     
     # Filter known entities from events (characters, ships, locations leak into events)
