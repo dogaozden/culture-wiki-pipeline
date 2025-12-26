@@ -1,4 +1,4 @@
-# Culture Wiki — Architecture Overview
+# Culture Wiki — Commands & Architecture
 
 *How we turn novels into a wiki, step by step.*
 
@@ -13,13 +13,23 @@
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
-> [!CAUTION]  
-> **Model Selection Critical Finding (Dec 2025)**  
-> Use **`gemini-2.5-flash-lite-preview-09-2025`** for ALL pipeline stages.  
-> 
-> Testing revealed `gemini-3-flash-preview` causes **semantic hallucinations**: facts that aren't supported by their quotes (e.g., claiming "Ship X pressured Ship Y" when the quote doesn't mention pressuring). These bad facts flow downstream and cause citation mismatches in final articles.
+> [!IMPORTANT]  
+> **Model Selection (Dec 2025)**  
+> Different stages use different models by default:
 >
-> `gemini-2.5-flash-lite` showed **100% semantic accuracy** — it makes literal, verifiable claims with quotes that directly support facts. It also extracts more facts per chapter.
+> | Stage | Model | Why |
+> |-------|-------|-----|
+> | Extract | `gemini-2.5-flash-lite` | Better instruction following, no semantic hallucinations |
+> | Merge | `gemini-2.5-flash-lite` | Same — accurate deduplication |
+> | Synthesize | `gemini-3-flash-preview` | **Better prose quality** (auto-configured) |
+>
+> Testing revealed `gemini-3-flash-preview` causes **semantic hallucinations** during extraction (facts not supported by quotes), but produces better wiki article prose. The pipeline now uses each model where it performs best.
+
+> [!TIP]
+> **Other Quality-of-Life Features:**
+> - **Progress bars**: All stages show tqdm progress bars
+> - **Opt-in cache**: LLM cache is OFF by default. Use `--use-cache` to enable.
+> - **Tolerance validation**: Large entities (80+ facts) allow up to 3 missing citations
 
 ---
 
@@ -121,19 +131,24 @@ Combine all chapter extractions into unified entity lists.
 
 ## Stage 3: SYNTHESIS ✍️
 
-**What happens:**  
-Write wiki articles for each entity using all extracted facts.
+**Goal:** Turn merged facts into a cohesive, verified article.
 
-**The process:**
+**The Workflow (Refactored Strategy):**
+1. **Prompt Construction:** 
+   - We feed the LLM the Merged Entity + all Extractions (facts with IDs).
+2. **LLM Generation (Text Only):**
+   - We ask the LLM to write the article with *inline citation tags* only (e.g. `[excession_ch001#003]`).
+   - We do *NOT* ask it to output the full citations array (saves tokens, prevents errors).
+3. **Python Post-Processing (The "Rebuild" Step):**
+   - Code parses the LLM output for all `[fact_id]` tags.
+   - It looks up each ID in the original extraction files.
+   - It constructs the full `citations` JSON array deterministically using the *original* verified quote and metadata.
+   - **Validation:** If the LLM uses a tag that doesn't exist in the input -> **REJECT** the article (Hallucination detected).
 
-1. **Gather all facts** from every chapter where the entity appears
-2. **Build a prompt** containing:
-   - Entity name and aliases
-   - All extracted facts with their unique fact IDs (e.g., `[excession_ch014#003]`)
-   - Instructions to use exact fact IDs provided
-3. **Ask Gemini** to write a cohesive article using these facts
-4. **Validate citations** against known fact IDs from extraction
-5. **Retry if needed** — Up to N retries (default: 10, configurable via `--max-retries`)
+**Why this is better:**
+- **Zero Quote Hallucinations:** The quote always comes from the source file, never the LLM's memory.
+- **Cheaper & Faster:** Reduces output tokens by ~50% (citations were the bulk of the output).
+- **No Token Limits:** Prevents "max output" cutoffs on massive entities like *Sleeper Service*.
 
 ### Fact ID System
 
@@ -350,15 +365,16 @@ python3 run.py --stage clean --clean output --yes
    ```
 ### Reference: CLI Flags
 
-- `--force`: Regenerate outputs and ignore cache (costly).
+- `--force`: Regenerate outputs even if they already exist.
 - `--entity-type`: Focus on a single category (characters, ships_and_minds, etc.).
 - `--limit N`: Process only N items (speed up testing).
-- `--workers N`: Set parallel workers (default: 16).
+- `--workers N`: Set parallel workers (default: 32).
 - `--max-retries N`: Set max synthesis retries on citation failures (default: 10).
 - `--skip-dedup`: Skip LLM deduplication during merge.
-- `--model`: Specify Gemini model (default: `gemini-3-flash-preview`).
-  - `gemini-2.5-flash-lite-preview-09-2025` (Fast, cheap)
-  - `gemini-3-flash-preview` (Higher limits)
+- `--use-cache`: Enable LLM response caching (default: OFF). Cache is model-specific.
+- `--model`: Override the default model for the stage.
+  - Synthesis defaults to `gemini-3-flash-preview` (better prose)
+  - Extract/Merge default to `gemini-2.5-flash-lite` (no hallucinations)
 
 ### Debugging & Verification
 

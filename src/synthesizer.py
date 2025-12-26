@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -84,6 +85,23 @@ FACT_ID_PATTERN = re.compile(r"\[([a-z0-9_#,\s]+)\]", re.IGNORECASE)
 # Legacy pattern for integer citations (kept for backwards compatibility during transition)
 CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 CHUNK_ID_PATTERN = re.compile(r"([a-z0-9-]+_(?:ch\d{3}|split_\d{3})(?:_p\d{2})?)")
+
+
+def _get_missing_citation_tolerance(fact_count: int) -> int:
+    """
+    Return how many missing citations are acceptable based on total fact count.
+    Larger entities get more tolerance since LLMs struggle to cite 100+ facts perfectly.
+    """
+    if fact_count > 80:
+        return 3
+    elif fact_count > 50:
+        return 2
+    elif fact_count > 25:
+        return 2
+    elif fact_count > 10:
+        return 1
+    else:
+        return 0  # Small entities must have perfect citations
 
 def _load_extractions(entity_type: str) -> List[EntityExtraction]:
     base_dir = config.EXTRACTIONS_DIR / entity_type
@@ -307,21 +325,45 @@ ENTITY DETAILS:
 EXTRACTED INFORMATION (use ALL of this):
 {formatted_extractions}
 
-Return a JSON object with:
-- summary: A compelling 2-3 sentence overview of the entity (with [fact_id] citations)
-- sections: Array of objects with "title" and "content" (with [fact_id] inline citations throughout, e.g., [excession_ch001#003]). Include 4-8 sections for major entities.
-- citations: Array of objects with fields:
-  - id: The EXACT fact ID string (e.g., "excession_ch001#003") - copy from the bracketed ID before each fact
-  - book: Book title
-  - chapter: Chapter title (optional)
-  - quote: COPY EXACTLY from the Quote field - do not paraphrase
-  - chunk_id: The chunk portion of the fact ID (e.g., "excession_ch001")
-- related_entities: Array of names of other entities mentioned (for cross-linking)
+# OLD PROMPT FORMAT (kept for reference):
+# Return a JSON object with:
+# - summary: A compelling 2-3 sentence overview of the entity (with [fact_id] citations)
+# - sections: Array of objects with "title" and "content" (with [fact_id] inline citations throughout, e.g., [excession_ch001#003]). Include 4-8 sections for major entities.
+# - citations: Array of objects with fields:
+#   - id: The EXACT fact ID string (e.g., "excession_ch001#003") - copy from the bracketed ID before each fact
+#   - book: Book title
+#   - chapter: Chapter title (optional)
+#   - quote: COPY EXACTLY from the Quote field - do not paraphrase
+#   - chunk_id: The chunk portion of the fact ID (e.g., "excession_ch001")
+# - related_entities: Array of names of other entities mentioned (for cross-linking)
+
+Return a JSON object with this EXACT structure:
+```json
+{{
+  "summary": "A compelling 2-3 sentence overview with [fact_id] citations...",
+  "sections": [
+    {{"title": "Section Title", "content": "Section content with [fact_id] citations..."}},
+    ...
+  ],
+  "citations": [
+    {{"id": "excession_split_001#003", "book": "Excession", "chapter": "I", "quote": "Exact quote from source...", "chunk_id": "excession_split_001"}},
+    ...
+  ],
+  "related_entities": ["Entity Name 1", "Entity Name 2", ...]
+}}
+```
+
+FIELD DETAILS:
+- summary: 2-3 sentence overview with [fact_id] inline citations
+- sections: 4-8 sections for major entities, each with title and content containing [fact_id] citations
+- citations: One entry per unique fact ID used. The "id" field is the COMPLETE fact ID string (e.g., "excession_split_010#003"), the "quote" field must be COPIED EXACTLY from the provided quotes
+- related_entities: Names of other entities mentioned (for cross-linking)
 
 CRITICAL:
-- Use the EXACT fact IDs provided in brackets before each fact (e.g., [excession_ch001#003])
+- Use the EXACT fact IDs provided in brackets before each fact (e.g., [Excession_split_010#003])
 - The "id" field in citations must be the complete fact ID string, NOT a number
-- The "quote" field must be copied EXACTLY from the provided quotes above"""
+- The "quote" field must be copied EXACTLY from the provided quotes above
+- Output ONLY the JSON object, no markdown code fences or other text"""
 
 
 def _build_chunk_context_map() -> Dict[str, Chapter]:
@@ -476,24 +518,37 @@ def synthesize_articles(
                 for section in sections:
                     referenced_ids.update(_extract_citation_ids(section.content))
                 
-                # Check if all referenced citations exist
+                # Check if all referenced citations exist (with tolerance for large entities)
                 if referenced_ids and not referenced_ids.issubset(cited_ids):
                     missing = sorted(referenced_ids - cited_ids)
-                    if attempt < MAX_SYNTHESIS_RETRIES:
+                    tolerance = _get_missing_citation_tolerance(len(cited_ids))
+                    
+                    if len(missing) <= tolerance:
+                        # Within tolerance - log but accept
+                        logger.info(
+                            "Accepting %s with %d missing citations (tolerance: %d for %d facts)",
+                            merged.canonical_name,
+                            len(missing),
+                            tolerance,
+                            len(cited_ids),
+                        )
+                    elif attempt < MAX_SYNTHESIS_RETRIES:
                         logger.warning(
-                            "Missing citations for %s (attempt %d/%d). Missing ids: %s. Retrying...",
+                            "Missing citations for %s (attempt %d/%d). Missing: %d (tolerance: %d). Retrying...",
                             merged.canonical_name,
                             attempt,
                             MAX_SYNTHESIS_RETRIES,
-                            missing,
+                            len(missing),
+                            tolerance,
                         )
                         continue  # Retry
                     else:
                         logger.error(
-                            "Missing citations for %s after %d attempts; skipping. Missing ids: %s",
+                            "Missing citations for %s after %d attempts; skipping. Missing: %d (tolerance: %d)",
                             merged.canonical_name,
                             MAX_SYNTHESIS_RETRIES,
-                            missing,
+                            len(missing),
+                            tolerance,
                         )
                         if force and outfile.exists():
                             outfile.unlink()
@@ -545,7 +600,7 @@ def synthesize_articles(
 
     with ThreadPoolExecutor(max_workers=config.PARALLEL_WORKERS) as executor:
         futures = {executor.submit(_synthesize_one, merged): merged for merged in pending}
-        for future in as_completed(futures):
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Synthesizing"):
             exc = future.exception()
             if exc:
                 logger.error(

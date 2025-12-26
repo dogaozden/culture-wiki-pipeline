@@ -127,8 +127,19 @@ class Pipeline:
         self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None
     ) -> None:
         from .synthesizer import synthesize_articles
+        from .gemini_client import GeminiClient
 
-        client = self._get_client()
+        # Use synthesis-specific model (3-flash for better prose quality)
+        # unless user explicitly overrode via --model flag
+        synthesis_model = config.GEMINI_MODEL_SYNTHESIS if hasattr(config, 'GEMINI_MODEL_SYNTHESIS') else config.GEMINI_MODEL
+        # Check if model was overridden by CLI (run.py sets GEMINI_MODEL when --model is used)
+        if config.GEMINI_MODEL != "gemini-2.5-flash-lite-preview-09-2025":
+            # User explicitly chose a model via --model, respect that
+            synthesis_model = config.GEMINI_MODEL
+        
+        client = GeminiClient(model_name=synthesis_model)
+        client.preflight()
+        logger.info("Using model %s for synthesis", synthesis_model)
         types = [entity_type] if entity_type else config.ENTITY_TYPES
         for et in types:
             synthesize_articles(et, client, force=force, max_retries=max_retries)

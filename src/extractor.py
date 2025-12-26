@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -545,7 +546,7 @@ def extract_entities_for_book(
             executor.submit(_extract_one, entity_type, chunk): (entity_type, chunk)
             for entity_type, chunk in tasks
         }
-        for future in as_completed(futures):
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Extracting"):
             exc = future.exception()
             if exc:
                 entity_type, chunk = futures[future]

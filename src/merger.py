@@ -10,6 +10,7 @@ from . import config
 from .models import EntityExtraction, MergedEntity
 from .utils import read_json, slugify, write_json
 from .gemini_client import GeminiClient
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     extractions = _load_extractions(entity_type)
     merged: Dict[str, MergedEntity] = {}
 
-    for extraction in extractions:
+    for extraction in tqdm(extractions, desc="Merging entities"):
         # Extract book slug from chunk_id (e.g., "Excession_split_006" -> "excession")
         chunk_id = extraction.chunk_id
         if "_split_" in chunk_id:

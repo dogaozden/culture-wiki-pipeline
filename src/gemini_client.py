@@ -153,12 +153,13 @@ class GeminiClient:
 
     # --- Public methods --------------------------------------------------
     def extract(self, prompt: str, cache_key: Optional[str] = None) -> dict:
-        """Extraction call with structured output + caching."""
+        """Extraction call with structured output + caching (opt-in)."""
         cache_path = self._cache_path("extract", cache_key or prompt)
-        cached = self._read_cache(cache_path)
-        if cached:
-            logger.info("Cache hit for %s", cache_key or "prompt")
-            return cached
+        if config.USE_CACHE:
+            cached = self._read_cache(cache_path)
+            if cached:
+                logger.info("Cache hit for %s", cache_key or "prompt")
+                return cached
         if not USING_PYDANTIC:
             raise RuntimeError("Structured extraction requires pydantic to be installed.")
 
@@ -199,21 +200,23 @@ class GeminiClient:
         except RetryError as exc:
             raise RuntimeError(f"Gemini request failed after retries: {exc}") from exc
 
-        write_json(result, cache_path)
+        if config.USE_CACHE:
+            write_json(result, cache_path)
         return result
 
     def synthesize(self, prompt: str, cache_key: Optional[str] = None) -> dict:
-        """Synthesis call with structured output + caching."""
+        """Synthesis call with structured output + caching (opt-in)."""
         cache_path = self._cache_path("synthesize", cache_key or prompt)
-        cached = self._read_cache(cache_path)
-        if cached:
-            if not USING_PYDANTIC:
-                return cached
-            try:
-                validated = SynthesisResponse.model_validate(cached)
-                return validated.model_dump()
-            except ValidationError as exc:
-                logger.warning("Cached synthesis payload invalid; regenerating: %s", exc)
+        if config.USE_CACHE:
+            cached = self._read_cache(cache_path)
+            if cached:
+                if not USING_PYDANTIC:
+                    return cached
+                try:
+                    validated = SynthesisResponse.model_validate(cached)
+                    return validated.model_dump()
+                except ValidationError as exc:
+                    logger.warning("Cached synthesis payload invalid; regenerating: %s", exc)
         if not USING_PYDANTIC:
             raise RuntimeError("Structured synthesis requires pydantic to be installed.")
 
@@ -254,5 +257,6 @@ class GeminiClient:
         except RetryError as exc:
             raise RuntimeError(f"Gemini request failed after retries: {exc}") from exc
 
-        write_json(result, cache_path)
+        if config.USE_CACHE:
+            write_json(result, cache_path)
         return result

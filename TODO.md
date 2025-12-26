@@ -22,17 +22,40 @@
   - Characters can link to ships/locations/etc in Related section
   - Global entity lookup built during render (2,974 entries)
   - Unlinked entities styled in gray
+- [x] **Model refinement** — Stage-specific models: 2.5-lite for extraction (accuracy), 3-flash for synthesis (prose) (Dec 26)
+- [x] **Progress bars** — Added `tqdm` to extract, merge, and synthesize stages (Dec 26)
+- [x] **Opt-in Cache** — LLM cache is now OFF by default to prevent cross-model contamination (Dec 26)
+- [x] **Tolerance validation** — Large entities (80+ facts) allow small % of missing citations (Dec 26)
+- [x] **Manual repair workflow** — `dump_synthesis_prompt.py` + `rebuild_citations.py` for massive entities (Dec 26)
 - [x] **MCP Server** — Claude Desktop can now browse the wiki via MCP tools (Dec 25)
   - 8 tools: search_wiki, get_entity, list_entities, get_relationships, get_quote, get_citation, get_random_entity, get_wiki_stats
   - Auto-loads 1,229 entities into memory for fast queries
   - See MCP_SETUP.md for Claude Desktop configuration
 
+
 ## 📋 Near-Term
+
+- [ ] **Architecture Refactor: Python-Rebuilt Citations (High Priority)**
+  - **Goal:** Stop asking LLM to output massive citation arrays.
+  - **New Workflow:**
+    1. LLM outputs article text with inline tags only (e.g., `...detected[Excession_split_001#003]`)
+    2. Python parses tags, looks up original extraction for quote/metadata
+    3. Python constructs the `citations` array deterministically
+  - **Benefits:** 30-50% cheaper, zero quote hallucinations, avoids output token limits
+  - **Validation:** If LLM outputs a tag ID that doesn't exist in input -> FAIL the article (hallucination check)
+
+- [ ] **Narrative improvements**
+  - Sort extractions by chunk ID before synthesis (ensure chronological narrative)
+  - Update synthesis prompt to emphasize "Narrative Flow" (tell the story sequentially)
+
+- [ ] **Streaming support**
+  - Implement streaming in `gemini_client.py` to prevent timeouts on massive entities (100+ facts)
 
 - [ ] **Apply deduplication to all entity types** and re-synthesize
   - Run `python3 run.py --stage merge --force` to re-merge with deduplication
   - Then `python3 run.py --stage synthesize --force` to regenerate articles
   
+
 - [ ] **Process remaining 9 Culture novels**
   - Consider Phlebas, Player of Games, Use of Weapons, etc.
   - Order: chronological publication or narrative order?

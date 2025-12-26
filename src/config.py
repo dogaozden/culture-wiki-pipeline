@@ -28,12 +28,14 @@ MAX_CHAPTER_TOKENS = 50_000
 MIN_CHAPTER_TOKENS = 500
 
 # API configuration
-# Using 2.5-flash-lite for better instruction following and semantic accuracy
-# Testing showed 3-flash causes semantic hallucinations (facts unsupported by quotes)
-GEMINI_MODEL = "gemini-2.5-flash-lite-preview-09-2025"
+# 2.5-flash-lite: Better instruction following, no semantic hallucinations (use for extraction/merge)
+# 3-flash: Better prose quality but slower, prone to hallucinations (use for synthesis)
+GEMINI_MODEL = "gemini-2.5-flash-lite-preview-09-2025"  # Default for extract/merge
+GEMINI_MODEL_SYNTHESIS = "gemini-3-flash-preview"  # Default for synthesis (better writing)
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 MAX_RETRIES = 3
 REQUESTS_PER_MINUTE = 60
+USE_CACHE = False  # LLM cache is opt-in; enable with --use-cache flag
 
 # Entity types we process
 ENTITY_TYPES = [
