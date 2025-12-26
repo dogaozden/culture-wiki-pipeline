@@ -226,7 +226,8 @@ class SynthesisResponse(BaseModel):
         description="Article sections with inline citations"
     )
     citations: List[SynthesisCitation] = Field(
-        description="Citation metadata used in the article"
+        default_factory=list,
+        description="DEPRECATED: Citations are rebuilt by Python from extraction data. LLM should leave empty.",
     )
     related_entities: List[str] = Field(
         default_factory=list, description="Optional related entity names"

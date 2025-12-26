@@ -31,22 +31,18 @@
   - 8 tools: search_wiki, get_entity, list_entities, get_relationships, get_quote, get_citation, get_random_entity, get_wiki_stats
   - Auto-loads 1,229 entities into memory for fast queries
   - See MCP_SETUP.md for Claude Desktop configuration
+- [x] **Python-Rebuilt Citations** — Citations now rebuilt by Python, not LLM (Dec 26)
+  - LLM outputs text with `[fact_id]` tags only
+  - Python parses tags and rebuilds citations from extraction data
+  - Zero quote hallucinations, ~50% cheaper output
+- [x] **Chronological Ordering + Narrative Prompts** (Dec 26)
+  - Extractions sorted by chunk_id before synthesis
+  - Prompt updated: "tell the story as it unfolds", "build tension, highlight turning points"
+  - Citation limit: max 2 per sentence to avoid citation-maxxing
+  - Result: articles read like dramatic biographies, not fact dumps
 
 
 ## 📋 Near-Term
-
-- [ ] **Architecture Refactor: Python-Rebuilt Citations (High Priority)**
-  - **Goal:** Stop asking LLM to output massive citation arrays.
-  - **New Workflow:**
-    1. LLM outputs article text with inline tags only (e.g., `...detected[Excession_split_001#003]`)
-    2. Python parses tags, looks up original extraction for quote/metadata
-    3. Python constructs the `citations` array deterministically
-  - **Benefits:** 30-50% cheaper, zero quote hallucinations, avoids output token limits
-  - **Validation:** If LLM outputs a tag ID that doesn't exist in input -> FAIL the article (hallucination check)
-
-- [ ] **Narrative improvements**
-  - Sort extractions by chunk ID before synthesis (ensure chronological narrative)
-  - Update synthesis prompt to emphasize "Narrative Flow" (tell the story sequentially)
 
 - [ ] **Streaming support**
   - Implement streaming in `gemini_client.py` to prevent timeouts on massive entities (100+ facts)

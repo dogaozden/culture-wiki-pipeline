@@ -32,6 +32,13 @@ WRITING GUIDELINES:
 - Write in flowing prose, not bullet points
 - Let the article length be determined by the facts—do not compress to hit a word target
 
+NARRATIVE APPROACH:
+- Facts are provided in CHRONOLOGICAL ORDER (by chapter). Use this to tell the story as it unfolds.
+- Create a compelling narrative that follows the character's journey through the novel
+- Build tension, highlight turning points, and capture emotional beats
+- Connect events causally—show how earlier events lead to later consequences
+- For major characters, the article should read like a dramatic biography, not a dry list of facts
+
 STRUCTURE REQUIREMENTS:
 For characters, include sections covering (where applicable):
 - Background and origins
@@ -75,10 +82,10 @@ For events, include:
 CITATION RULES:
 - Use the EXACT fact IDs provided (format: [chunk_id#seq], e.g., [excession_ch001#003])
 - Do NOT renumber citations—use the IDs exactly as given
-- Cite liberally—almost every sentence should have at least one citation
-- Group related citations: [excession_ch001#003][excession_ch002#005] for claims supported by multiple sources
+- EVERY FACT MUST BE CITED: If there are 100 facts, your article must have ~100 citations
+- Maximum 2 citations per sentence—if you have many facts, write more sentences!
 - Prefer direct quotes for dramatic or significant moments
-- You should have roughly as many citations as facts provided"""
+- The number of citations in your article should equal the number of facts provided"""
 
 # Pattern to match fact ID citations like [excession_ch001#003] or [excession_ch001#001, excession_ch002#005]
 FACT_ID_PATTERN = re.compile(r"\[([a-z0-9_#,\s]+)\]", re.IGNORECASE)
@@ -114,6 +121,73 @@ def _load_extractions(entity_type: str) -> List[EntityExtraction]:
         for path in book_dir.glob("*.json"):
             extractions.append(EntityExtraction(**read_json(path)))
     return extractions
+
+
+def _build_fact_lookup(extractions: List[EntityExtraction]) -> Dict[str, dict]:
+    """Build lookup from fact_id -> fact info for citation rebuilding.
+    
+    This enables O(1) lookup when the LLM uses a [fact_id] tag.
+    The quote and metadata come from the original extraction, not the LLM.
+    """
+    lookup: Dict[str, dict] = {}
+    for extraction in extractions:
+        for entity in extraction.entities:
+            for info in entity.information:
+                fact_id = info.id.lower() if info.id else None
+                if fact_id:
+                    # Infer book title from chunk_id (e.g. excession_split_001 -> Excession)
+                    chunk_id = extraction.chunk_id
+                    book_title = chunk_id.split("_")[0].title() if "_" in chunk_id else "Unknown"
+                    
+                    lookup[fact_id] = {
+                        "id": info.id,
+                        "fact": info.fact,
+                        "quote": info.quote,
+                        "book": book_title,
+                        "chapter": extraction.chapter_title,
+                        "chunk_id": extraction.chunk_id,
+                    }
+    return lookup
+
+
+def _rebuild_citations_from_text(
+    text: str,
+    fact_lookup: Dict[str, dict],
+    chunk_map: Dict[str, Chapter],
+) -> Tuple[List[Citation], List[str]]:
+    """Parse [fact_id] tags from text and rebuild citations from extraction data.
+    
+    Returns (citations, missing_ids).
+    - citations: List of Citation objects built from original extraction data
+    - missing_ids: List of fact IDs referenced in text but not found in extractions (hallucinations)
+    """
+    # Extract all fact IDs from text
+    fact_ids: set[str] = set()
+    pattern = re.compile(r'\[([a-zA-Z0-9_]+#\d{3})\]', re.IGNORECASE)
+    for match in pattern.finditer(text or ""):
+        fact_ids.add(match.group(1).lower())
+    
+    citations: List[Citation] = []
+    missing: List[str] = []
+    
+    for fact_id in sorted(fact_ids):
+        if fact_id in fact_lookup:
+            info = fact_lookup[fact_id]
+            chunk_id = info["chunk_id"].lower()
+            chapter = chunk_map.get(chunk_id)
+            
+            citations.append(Citation(
+                id=fact_id,
+                book=info["book"],
+                chapter=info.get("chapter", ""),
+                quote=info["quote"],
+                chunk_id=chunk_id,
+                source_file=chapter.source_file if chapter else None,
+            ))
+        else:
+            missing.append(fact_id)
+    
+    return citations, missing
 
 
 def _load_merged_entities(entity_type: str) -> List[MergedEntity]:
@@ -275,8 +349,10 @@ def _format_extractions_for_prompt(
     pairs: List[Tuple[EntityExtraction, Dict]],
     chunk_map: Dict[str, Chapter],
 ) -> str:
+    # Sort by chunk_id for chronological ordering
+    sorted_pairs = sorted(pairs, key=lambda p: p[0].chunk_id.lower())
     lines: List[str] = []
-    for extraction, ent in pairs:
+    for extraction, ent in sorted_pairs:
         chapter = chunk_map.get(extraction.chunk_id)
         if chapter is None:
             logger.warning(
@@ -325,18 +401,6 @@ ENTITY DETAILS:
 EXTRACTED INFORMATION (use ALL of this):
 {formatted_extractions}
 
-# OLD PROMPT FORMAT (kept for reference):
-# Return a JSON object with:
-# - summary: A compelling 2-3 sentence overview of the entity (with [fact_id] citations)
-# - sections: Array of objects with "title" and "content" (with [fact_id] inline citations throughout, e.g., [excession_ch001#003]). Include 4-8 sections for major entities.
-# - citations: Array of objects with fields:
-#   - id: The EXACT fact ID string (e.g., "excession_ch001#003") - copy from the bracketed ID before each fact
-#   - book: Book title
-#   - chapter: Chapter title (optional)
-#   - quote: COPY EXACTLY from the Quote field - do not paraphrase
-#   - chunk_id: The chunk portion of the fact ID (e.g., "excession_ch001")
-# - related_entities: Array of names of other entities mentioned (for cross-linking)
-
 Return a JSON object with this EXACT structure:
 ```json
 {{
@@ -345,24 +409,26 @@ Return a JSON object with this EXACT structure:
     {{"title": "Section Title", "content": "Section content with [fact_id] citations..."}},
     ...
   ],
-  "citations": [
-    {{"id": "excession_split_001#003", "book": "Excession", "chapter": "I", "quote": "Exact quote from source...", "chunk_id": "excession_split_001"}},
-    ...
-  ],
+  "citations": [],
   "related_entities": ["Entity Name 1", "Entity Name 2", ...]
 }}
 ```
 
+IMPORTANT - CITATIONS ARE REBUILT BY PYTHON:
+- Do NOT populate the citations array - leave it empty: []
+- Just use [fact_id] tags inline in your text (e.g., [excession_split_010#003])
+- Python will automatically rebuild the citations from source data
+- This saves tokens and prevents errors
+
 FIELD DETAILS:
 - summary: 2-3 sentence overview with [fact_id] inline citations
 - sections: 4-8 sections for major entities, each with title and content containing [fact_id] citations
-- citations: One entry per unique fact ID used. The "id" field is the COMPLETE fact ID string (e.g., "excession_split_010#003"), the "quote" field must be COPIED EXACTLY from the provided quotes
+- citations: LEAVE EMPTY - Python rebuilds these automatically
 - related_entities: Names of other entities mentioned (for cross-linking)
 
 CRITICAL:
-- Use the EXACT fact IDs provided in brackets before each fact (e.g., [Excession_split_010#003])
-- The "id" field in citations must be the complete fact ID string, NOT a number
-- The "quote" field must be copied EXACTLY from the provided quotes above
+- Use the EXACT fact IDs provided in brackets before each fact (e.g., [excession_split_010#003])
+- Do NOT output citations - leave the array empty
 - Output ONLY the JSON object, no markdown code fences or other text"""
 
 
@@ -396,6 +462,7 @@ def synthesize_articles(
     merged_entities = _load_merged_entities(entity_type)
     extractions = _load_extractions(entity_type)
     chunk_map = _build_chunk_context_map()
+    fact_lookup = _build_fact_lookup(extractions)  # For Python citation rebuild
     output_dir = config.ARTICLES_DIR / entity_type
     output_dir.mkdir(parents=True, exist_ok=True)
     expected_slugs = {slugify(ent.canonical_name) for ent in merged_entities}
@@ -445,51 +512,29 @@ def synthesize_articles(
                 # Use unique cache key per attempt to bypass cache on retries
                 cache_key = f"{entity_type}:{slug}" if attempt == 1 else f"{entity_type}:{slug}:retry{attempt}"
                 payload = client.synthesize(prompt, cache_key=cache_key)
-                citations_payload = payload.get("citations", [])
-                citations: List[Citation] = []
-                for item in citations_payload:
-                    if not isinstance(item, dict):
-                        logger.warning(
-                            "Skipping malformed citation for %s: %r",
-                            merged.canonical_name,
-                            item,
-                        )
-                        continue
-                    raw_chunk_id = item.get("chunk_id")
-                    chunk_id = _normalize_chunk_id(
-                        str(raw_chunk_id) if raw_chunk_id is not None else ""
+                
+                # === PYTHON CITATION REBUILD ===
+                # Extract all text content (summary + sections)
+                all_text = payload.get("summary", "")
+                for section in payload.get("sections", []):
+                    all_text += " " + section.get("content", "")
+                
+                # Rebuild citations from fact_lookup (not LLM output)
+                citations, missing_ids = _rebuild_citations_from_text(
+                    all_text, fact_lookup, chunk_map
+                )
+                
+                # FAIL immediately if LLM used unknown fact IDs (hallucination)
+                if missing_ids:
+                    logger.error(
+                        "HALLUCINATION DETECTED for %s: LLM used %d unknown fact IDs: %s",
+                        merged.canonical_name,
+                        len(missing_ids),
+                        missing_ids[:5],  # Show first 5
                     )
-                    chapter = chunk_map.get(chunk_id)
-                    if chapter is None:
-                        # Log available keys in chunk_map to help debug which one is missing
-                        sample_keys = list(chunk_map.keys())[:5]
-                        logger.warning(
-                            "Unknown chunk_id for citation in %s: %r (normalized: %r). Available sample keys: %s",
-                            merged.canonical_name,
-                            raw_chunk_id,
-                            chunk_id,
-                            sample_keys,
-                        )
-                        continue
-                    quote = str(item.get("quote", "")).strip()
-                    if not _quote_in_text(quote, chapter.text):
-                        logger.warning(
-                            "Citation quote not found for %s (%s)",
-                            merged.canonical_name,
-                            chunk_id,
-                        )
-                        continue
-                    # Normalize the fact ID to lowercase
-                    fact_id = str(item.get("id", "")).lower()
-                    item = {
-                        **item,
-                        "id": fact_id,
-                        "chunk_id": chunk_id,
-                        "source_file": chapter.source_file,
-                        "chapter": chapter.title,
-                        "book": chapter.book_title,
-                    }
-                    citations.append(Citation(**item))
+                    if force and outfile.exists():
+                        outfile.unlink()
+                    return  # FAIL - do not retry, this is a hallucination
 
                 sections = [
                     ArticleSection(**section) for section in payload.get("sections", [])
@@ -511,48 +556,9 @@ def synthesize_articles(
                     prominence_score=prominence_score,
                     generated_at=utc_now(),
                 )
-                # Normalize citation IDs to lowercase for consistent comparison
-                cited_ids = set(str(c.id).lower() for c in citations)
-                referenced_ids = set()
-                referenced_ids.update(_extract_citation_ids(article.summary))
-                for section in sections:
-                    referenced_ids.update(_extract_citation_ids(section.content))
-                
-                # Check if all referenced citations exist (with tolerance for large entities)
-                if referenced_ids and not referenced_ids.issubset(cited_ids):
-                    missing = sorted(referenced_ids - cited_ids)
-                    tolerance = _get_missing_citation_tolerance(len(cited_ids))
-                    
-                    if len(missing) <= tolerance:
-                        # Within tolerance - log but accept
-                        logger.info(
-                            "Accepting %s with %d missing citations (tolerance: %d for %d facts)",
-                            merged.canonical_name,
-                            len(missing),
-                            tolerance,
-                            len(cited_ids),
-                        )
-                    elif attempt < MAX_SYNTHESIS_RETRIES:
-                        logger.warning(
-                            "Missing citations for %s (attempt %d/%d). Missing: %d (tolerance: %d). Retrying...",
-                            merged.canonical_name,
-                            attempt,
-                            MAX_SYNTHESIS_RETRIES,
-                            len(missing),
-                            tolerance,
-                        )
-                        continue  # Retry
-                    else:
-                        logger.error(
-                            "Missing citations for %s after %d attempts; skipping. Missing: %d (tolerance: %d)",
-                            merged.canonical_name,
-                            MAX_SYNTHESIS_RETRIES,
-                            len(missing),
-                            tolerance,
-                        )
-                        if force and outfile.exists():
-                            outfile.unlink()
-                        return
+                # NOTE: Old validation for "referenced IDs subset of cited IDs" removed.
+                # The Python rebuild step already validates that all fact IDs exist.
+                # If any unknown fact IDs were used, we already failed above.
 
             # Check citation density - reject articles with too few citations
                 if not _check_citation_density(article.summary, sections, merged.canonical_name):

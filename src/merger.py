@@ -139,6 +139,32 @@ def _name_keys(entity: MergedEntity) -> set[str]:
     return {k for k in keys if k}
 
 
+# Ship prefixes for filtering ships that leak into characters
+_SHIP_FILTER_PREFIXES = [
+    "GSV", "GCU", "GCV", "ROU", "LCU", "GOU", "LOU", "MSV", "VFP",
+    "LSV", "dROU", "fROU", "oROU", "OU", "Eccentric", "ex-"
+]
+_SHIP_FILTER_PATTERN = re.compile(
+    r'^(' + '|'.join(re.escape(p) for p in _SHIP_FILTER_PREFIXES) + r')\s+',
+    re.IGNORECASE
+)
+
+
+def _filter_ships_from_characters(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
+    """Remove ship entities that leaked into characters during extraction."""
+    filtered = {}
+    removed_count = 0
+    for key, entity in merged.items():
+        if _SHIP_FILTER_PATTERN.match(entity.canonical_name.strip()):
+            logger.debug("Filtering ship from characters: %s", entity.canonical_name)
+            removed_count += 1
+        else:
+            filtered[key] = entity
+    if removed_count > 0:
+        logger.info("Filtered %d ships from characters", removed_count)
+    return filtered
+
+
 def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
     """Merge entities that share any alias/name slug."""
     entities = list(merged.values())
@@ -248,6 +274,11 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
                 )
 
     merged = _consolidate_overlaps(merged)
+    
+    # Filter ships from characters (they leak due to LLM not following instructions)
+    if entity_type == "characters":
+        merged = _filter_ships_from_characters(merged)
+    
     write_json({"entities": [m.model_dump() for m in merged.values()]}, output_path)
     logger.info(
         "Merged %s entities (%s unique) -> %s",
