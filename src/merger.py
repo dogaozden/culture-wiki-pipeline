@@ -165,6 +165,45 @@ def _filter_ships_from_characters(merged: Dict[str, MergedEntity]) -> Dict[str, 
     return filtered
 
 
+def _filter_entities_from_events(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
+    """Remove character/ship/location names that leaked into events during extraction."""
+    # Load known entities from other types to check against
+    known_entity_slugs: set[str] = set()
+    for entity_type in ["characters", "ships_and_minds", "locations", "factions", "technology"]:
+        entity_file = config.ENTITIES_DIR / f"{entity_type}.json"
+        if entity_file.exists():
+            data = read_json(entity_file)
+            for ent in data.get("entities", []):
+                known_entity_slugs.add(slugify(ent.get("canonical_name", "")))
+                for alias in ent.get("aliases", []):
+                    known_entity_slugs.add(slugify(alias))
+    
+    # Also filter by ship prefixes
+    filtered = {}
+    removed_count = 0
+    for key, entity in merged.items():
+        name = entity.canonical_name.strip()
+        slug = slugify(name)
+        
+        # Check if it matches a known entity from other types
+        if slug in known_entity_slugs:
+            logger.debug("Filtering entity from events: %s (matches known entity)", name)
+            removed_count += 1
+            continue
+        
+        # Check if it's a ship designation
+        if _SHIP_FILTER_PATTERN.match(name):
+            logger.debug("Filtering ship from events: %s", name)
+            removed_count += 1
+            continue
+        
+        filtered[key] = entity
+    
+    if removed_count > 0:
+        logger.info("Filtered %d leaked entities from events", removed_count)
+    return filtered
+
+
 def _consolidate_overlaps(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
     """Merge entities that share any alias/name slug."""
     entities = list(merged.values())
@@ -278,6 +317,10 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     # Filter ships from characters (they leak due to LLM not following instructions)
     if entity_type == "characters":
         merged = _filter_ships_from_characters(merged)
+    
+    # Filter known entities from events (characters, ships, locations leak into events)
+    if entity_type == "events":
+        merged = _filter_entities_from_events(merged)
     
     write_json({"entities": [m.model_dump() for m in merged.values()]}, output_path)
     logger.info(

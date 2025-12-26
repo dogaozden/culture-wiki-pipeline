@@ -302,36 +302,48 @@ For each faction provide:
 
 Return JSON: {"entities": [...]}
 If none found: {"entities": []}""",
-    "events": """Extract NAMED EVENTS and SIGNIFICANT INCIDENTS mentioned in this chapter.
+    "events": """Extract NAMED EVENTS and SIGNIFICANT HISTORICAL INCIDENTS mentioned in this chapter.
 
-Include:
-- Named historical events (Idiran War, the Subliming, etc.)
-- Named missions or operations
-- Significant battles or conflicts with names or clear identity
-- Major plot events that are given titles or names
+CRITICAL: Events are OCCURRENCES, not entities. Do NOT extract:
+- Characters (people, beings, Minds, drones) — use "characters" extraction for those
+- Ships/vessels — use "ships_and_minds" extraction for those
+- Locations/places — use "locations" extraction for those
+- Factions/organizations — use "factions" extraction for those
+- Technology/devices — use "technology" extraction for those
+
+Events ARE things that HAPPENED. Look for:
+- Named wars or conflicts (Idiran War, Twin Novae Battle)
+- Named missions or operations with specific names
+- Historical incidents given titles (The Subliming, The Schism)
+- Specific battles or encounters with identifiable names
+- Major plot events that characters refer to by name
 
 Do NOT extract:
-- Generic actions ("a meeting", "a battle", "a conversation")
-- Everyday occurrences without significance
-- Vague references without specifics
+- Character actions ("Genar-Hofoen's arrival" — that's about a character)
+- Ship communications ("GSV message" — that's about a ship)
+- Location descriptions ("The tower's construction" — that's about a location)
+- Generic occurrences ("a meeting", "a battle", "a conversation")
+- Vague references without a specific named event
 
 For each event provide:
-- name: The event's name or a descriptive title (prefer named events)
+- name: The event's proper name (e.g., "Idiran War", "Battle of Boustrago")
+  MUST be a named event, not a description of what a character/ship did
 - aliases: Other names this SAME event is CALLED in the text (empty array if none)
 
   STRICT ALIAS RULES - Only include if:
-  ✓ The text explicitly identifies it as an alternate name
+  ✓ The text explicitly identifies it as an alternate name for the same event
   
   NEVER include as aliases:
   ✗ Related but different events
+  ✗ Participants in the event
   ✗ Generic descriptions
 
 - timeframe: When it occurred relative to narrative (current, "300 years ago", during Idiran War) if mentioned, or null
 - participants: Key entities involved if mentioned (array of names), or null
 - prominence: How significant is this event IN THIS CHAPTER?
-  - "major": Central to the chapter's plot
-  - "supporting": Discussed with context
-  - "mentioned": Only referenced briefly
+  - "major": Central to the chapter's plot, extensively discussed
+  - "supporting": Discussed with some context
+  - "mentioned": Only referenced briefly by name
 
 - information: Extract ALL notable facts about this event in THIS chapter.
   Be thorough — extract every distinct piece of information.
@@ -344,12 +356,12 @@ For each event provide:
   * Significance and impact
   
   For each fact:
-  - fact: One specific observation
+  - fact: One specific observation about the EVENT itself
   - quote: EXACT verbatim text (20-100 words, complete sentences)
   - location: Context in narrative
 
 Return JSON: {"entities": [...]}
-If none found: {"entities": []}""",
+If no NAMED EVENTS found: {"entities": []}""",
 }
 
 
