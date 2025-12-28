@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Apocrypha — Culture Wiki{% endblock %}
+
+{% block content %}
+<div class="book-page">
+    <div class="book-header">
+        <a href="{{ root_path }}index.html" class="back-link">← All Books</a>
+        <h1>Apocrypha</h1>
+        <p class="book-subtitle">{{ documents | length }} documents — Short stories, novellas, and supplementary
+            material</p>
+    </div>
+
+    <div class="entity-grid">
+        {% for doc in documents %}
+        <a class="entity-card has-content" href="{{ root_path }}books/apocrypha/{{ doc.slug }}.html">
+            <h3>{{ doc.title }}</h3>
+            <p>{{ doc.preview }}</p>
+        </a>
+        {% else %}
+        <p class="no-content">No documents yet. Add .md files to books/Apocrypha/ to get started.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

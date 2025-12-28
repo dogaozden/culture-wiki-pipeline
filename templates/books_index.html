@@ -11,8 +11,8 @@
         <p class="hero-subtitle">An LLM-generated encyclopedia for<br>Iain M. Banks' Culture series</p>
         <div class="hero-stats">
             <div class="hero-stat">
-                <span class="stat-number">{{ total_books }}</span>
-                <span class="stat-label">Novels</span>
+                <span class="stat-number">10 Books + Apocrypha</span>
+                <span class="stat-label">The Culture Series</span>
             </div>
             <div class="hero-stat">
                 <span class="stat-number">{{ total_entities }}</span>
@@ -25,7 +25,7 @@
     <div class="books-section">
         <h2 class="section-title">
             <span class="section-icon">📚</span>
-            Select a Novel
+            Select a Book
         </h2>
         <div class="books-grid">
             {% for book in books %}
@@ -37,8 +37,12 @@
                         <div class="book-title">{{ book.title }}</div>
                         {% if book.entity_count > 0 %}
                         <div class="book-stats">
+                            {% if book.is_apocrypha %}
+                            <span class="stat-badge">{{ book.entity_count }} entries</span>
+                            {% else %}
                             <span class="stat-badge">{{ book.entity_count }} entities</span>
                             <span class="stat-badge">{{ book.chapter_count }} chapters</span>
+                            {% endif %}
                         </div>
                         <div class="book-types">
                             {% for type, count in book.type_counts.items() %}

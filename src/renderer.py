@@ -9,6 +9,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, List
 
+import markdown
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
@@ -282,6 +284,16 @@ def render_books_landing(books: List[Dict], type_map: Dict[str, List[Article]]) 
     # Compute stats per book
     for book in books:
         book_slug = book["slug"]
+        
+        # Special handling for Apocrypha - count .md files directly
+        if book_slug == "apocrypha":
+            apocrypha_dir = config.BOOKS_DIR / "Apocrypha"
+            md_files = list(apocrypha_dir.glob("*.md")) if apocrypha_dir.exists() else []
+            book["entity_count"] = len(md_files)
+            book["type_counts"] = {"entries": len(md_files)} if md_files else {}
+            book["is_apocrypha"] = True
+            continue
+        
         type_counts = {}
         entity_count = 0
         for et, arts in type_map.items():
@@ -383,6 +395,74 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
         out_path.write_text(html, encoding="utf-8")
 
 
+def render_apocrypha() -> None:
+    """Render Apocrypha markdown files directly to HTML (bypasses entity pipeline)."""
+    apocrypha_dir = config.BOOKS_DIR / "Apocrypha"
+    if not apocrypha_dir.exists():
+        logger.debug("No Apocrypha folder found, skipping")
+        return
+    
+    md_files = list(apocrypha_dir.glob("*.md"))
+    if not md_files:
+        logger.debug("No markdown files in Apocrypha folder")
+        return
+    
+    env = _env()
+    md_converter = markdown.Markdown(extensions=['tables', 'fenced_code', 'toc'])
+    output_dir = ensure_dir(config.WIKI_DIR / "books" / "apocrypha")
+    
+    documents = []
+    
+    for md_file in sorted(md_files):
+        # Read and convert markdown
+        md_content = md_file.read_text(encoding="utf-8")
+        html_content = md_converter.convert(md_content)
+        md_converter.reset()  # Reset for next file
+        
+        # Extract title from first H1 or filename
+        title_match = re.search(r'^#\s+(.+)$', md_content, re.MULTILINE)
+        title = title_match.group(1) if title_match else md_file.stem.replace("-", " ").replace("_", " ").title()
+        
+        # Create slug from filename
+        file_slug = slugify(md_file.stem)
+        
+        # Extract preview (first paragraph after title)
+        lines = md_content.strip().split('\n')
+        preview = ""
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                preview = line[:200] + ("..." if len(line) > 200 else "")
+                break
+        
+        # Render article
+        article_template = env.get_template("apocrypha_article.html")
+        out_path = output_dir / f"{file_slug}.html"
+        html = article_template.render(
+            title=title,
+            content=html_content,
+            root_path=_root_path_for(out_path),
+        )
+        out_path.write_text(html, encoding="utf-8")
+        
+        documents.append({
+            "title": title,
+            "slug": file_slug,
+            "preview": preview,
+        })
+        logger.info("Rendered Apocrypha: %s", title)
+    
+    # Render index
+    index_template = env.get_template("apocrypha_index.html")
+    index_path = output_dir / "index.html"
+    html = index_template.render(
+        documents=documents,
+        root_path=_root_path_for(index_path),
+    )
+    index_path.write_text(html, encoding="utf-8")
+    logger.info("Rendered Apocrypha index with %d documents", len(documents))
+
+
 def render_all() -> None:
     global _ENTITY_LOOKUP
     _copy_assets()
@@ -436,4 +516,7 @@ def render_all() -> None:
     else:
         # Fallback to old index if no books found
         render_root_index(type_map)
+    
+    # Render Apocrypha (direct markdown -> HTML, bypasses entity pipeline)
+    render_apocrypha()
 

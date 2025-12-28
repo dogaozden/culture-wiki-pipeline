@@ -19,6 +19,7 @@ mcp = FastMCP("culture-wiki")
 PROJECT_ROOT = Path(__file__).parent
 ARTICLES_DIR = PROJECT_ROOT / "data" / "articles"
 ENTITIES_DIR = PROJECT_ROOT / "data" / "entities"
+APOCRYPHA_DIR = PROJECT_ROOT / "books" / "Apocrypha"
 
 # In-memory cache
 _articles: dict[str, list[dict]] = {}  # type -> [articles]
@@ -475,6 +476,78 @@ def get_citation(entity_name: str, citation_id: int) -> str:
             return "\n".join(output)
     
     return f"Citation [{citation_id}] not found for {article['entity_name']}. Available IDs: {[c['id'] for c in citations[:20]]}"
+
+
+@mcp.tool()
+def list_apocrypha() -> str:
+    """
+    List all available Apocrypha documents (short stories, novellas, supplementary material).
+    
+    Returns:
+        List of available documents with filenames and titles
+    """
+    if not APOCRYPHA_DIR.exists():
+        return "No Apocrypha folder found."
+    
+    md_files = list(APOCRYPHA_DIR.glob("*.md"))
+    if not md_files:
+        return "No Apocrypha documents found. Add .md files to books/Apocrypha/ to get started."
+    
+    output = ["# Apocrypha Documents\n"]
+    output.append(f"*{len(md_files)} documents available*\n")
+    
+    for md_file in sorted(md_files):
+        content = md_file.read_text(encoding="utf-8")
+        # Extract title from first H1 or use filename
+        import re
+        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+        title = title_match.group(1) if title_match else md_file.stem.replace("-", " ").replace("_", " ").title()
+        
+        # Get first paragraph as preview
+        lines = content.strip().split('\n')
+        preview = ""
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                preview = line[:100] + ("..." if len(line) > 100 else "")
+                break
+        
+        output.append(f"- **{title}** (`{md_file.name}`)")
+        if preview:
+            output.append(f"  {preview}")
+        output.append("")
+    
+    return "\n".join(output)
+
+
+@mcp.tool()
+def get_apocrypha(filename: str) -> str:
+    """
+    Get the full markdown content of an Apocrypha document.
+    
+    Args:
+        filename: The filename (with or without .md extension), e.g., "a-gift-from-the-culture" or "test-story.md"
+    
+    Returns:
+        Full markdown content of the document
+    """
+    if not APOCRYPHA_DIR.exists():
+        return "No Apocrypha folder found."
+    
+    # Handle with or without .md extension
+    if not filename.endswith(".md"):
+        filename = f"{filename}.md"
+    
+    filepath = APOCRYPHA_DIR / filename
+    
+    if not filepath.exists():
+        # Try to find similar files
+        available = [f.name for f in APOCRYPHA_DIR.glob("*.md")]
+        if available:
+            return f"Document '{filename}' not found. Available documents: {', '.join(available)}"
+        return f"Document '{filename}' not found and no Apocrypha documents exist."
+    
+    return filepath.read_text(encoding="utf-8")
 
 
 # Run the server
