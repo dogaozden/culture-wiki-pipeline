@@ -40,21 +40,30 @@
   - Prompt updated: "tell the story as it unfolds", "build tension, highlight turning points"
   - Citation limit: max 2 per sentence to avoid citation-maxxing
   - Result: articles read like dramatic biographies, not fact dumps
+- [x] **LLM Garbage Filter** — Removes generic descriptors before dedup (Dec 28)
+  - Filters "the woman", "Admiral", "Speaker 1" etc.
+  - 3 Flash is much more conservative than 2.5 Flash Lite
+- [x] **3 Flash for Merge** — Now default for merge stage (Dec 28)
+  - Events: 5 → 97 entities (2.5 Lite was too aggressive)
+  - Technology: 183 → 261 entities
+  - ~$0.05 per merge, 10x better dedup accuracy
+- [x] **Merge Summary Table** — Detailed breakdown at end of merge (Dec 28)
+  - Shows: Raw → Consolid → Determ → Garbage → Dedup → Cross → Final
+  - Tracks both deterministic and LLM filtering stages
+- [x] **Enhanced Progress Bars** — Entity type shown in tqdm descriptions (Dec 28)
+  - "Synthesizing characters: 45%" instead of "Synthesizing: 45%"
+  - "=== Merging 3/6: locations ===" before each entity type
 
 
 ## 📋 Near-Term
-
-- [ ] **Streaming support**
-  - Implement streaming in `gemini_client.py` to prevent timeouts on massive entities (100+ facts)
 
 - [ ] **Apply deduplication to all entity types** and re-synthesize
   - Run `python3 run.py --stage merge --force` to re-merge with deduplication
   - Then `python3 run.py --stage synthesize --force` to regenerate articles
 
-- [ ] **Stage completion reports**
-  - Print summary at end of each stage (merge, synthesize, render)
-  - Show: total entities, success count, failure count, failure reasons
-  - Example: "Synthesized 85/93 characters. Failures: 8 (5 low citation density, 3 hallucinations)"
+- [x] **Stage completion reports** (Dec 28)
+  - Merge now prints detailed table at end (see Merge Summary Table above)
+  - Synthesize: TODO - add success/failure count summary
 
 - [ ] **Process remaining 9 Culture novels**
   - Consider Phlebas, Player of Games, Use of Weapons, etc.

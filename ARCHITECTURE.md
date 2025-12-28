@@ -104,11 +104,16 @@ Combine all chapter extractions into unified entity lists.
    Picks the name that appears in the **most chapters** (by extraction_refs count).
    This ensures "Sleeper Service" (48 chapters) beats "Quietly Confident" (mentioned once).
 
-3. **LLM Deduplication (runs AFTER deterministic)**  
+3. **LLM Garbage Filter (NEW Dec 2025)**  
+   - Removes generic descriptors: "the woman", "Admiral", "Speaker 1"
+   - Runs before within-entity dedup
+   - Uses 3 Flash by default (much more conservative than 2.5 Flash Lite)
+
+4. **LLM Deduplication**  
    - First runs **alias pre-filter**: asks LLM to identify facts mentioning former names
    - Then runs **main dedup**: compares entities with their alias-related facts
    - Batched processing with retry logic for API failures
-   - **Recommend using `--model gemini-2.5-flash-lite-preview-09-2025`** for speed/cost
+   - **Default model: gemini-3-flash-preview** for better accuracy
 
 > ✅ **Fixed: Canonical Name Selection**  
 > Previously picked the longest name, causing "Quietly Confident" to be canonical instead of "Sleeper Service".
