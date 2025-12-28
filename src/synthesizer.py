@@ -606,7 +606,7 @@ def synthesize_articles(
 
     with ThreadPoolExecutor(max_workers=config.PARALLEL_WORKERS) as executor:
         futures = {executor.submit(_synthesize_one, merged): merged for merged in pending}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Synthesizing"):
+        for future in tqdm(as_completed(futures), total=len(futures), desc=f"Synthesizing {entity_type}"):
             exc = future.exception()
             if exc:
                 logger.error(

@@ -50,7 +50,11 @@
 - [ ] **Apply deduplication to all entity types** and re-synthesize
   - Run `python3 run.py --stage merge --force` to re-merge with deduplication
   - Then `python3 run.py --stage synthesize --force` to regenerate articles
-  
+
+- [ ] **Stage completion reports**
+  - Print summary at end of each stage (merge, synthesize, render)
+  - Show: total entities, success count, failure count, failure reasons
+  - Example: "Synthesized 85/93 characters. Failures: 8 (5 low citation density, 3 hallucinations)"
 
 - [ ] **Process remaining 9 Culture novels**
   - Consider Phlebas, Player of Games, Use of Weapons, etc.

@@ -341,7 +341,7 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity], entity_type: str = No
     return consolidated
 
 
-def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None) -> Path:
+def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None) -> dict:
     """
     Merge entities of a type and write merged JSON.
     
@@ -350,11 +350,15 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
         force: Overwrite existing merged file
         skip_dedup: Skip LLM-based semantic deduplication (faster but less thorough)
         client: Optional GeminiClient for deduplication (created if needed)
+    
+    Returns:
+        dict with keys: initial, garbage, dedup, cross, final (counts)
     """
     output_path = config.ENTITIES_DIR / f"{entity_type}.json"
     if output_path.exists() and not force:
         logger.info("Merged entities already exist at %s", output_path)
-        return output_path
+        count = len(read_json(output_path).get("entities", []))
+        return {"entity_type": entity_type, "raw": count, "consolidate": 0, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": count}
 
     extractions = _load_extractions(entity_type)
     merged: Dict[str, MergedEntity] = {}
@@ -389,17 +393,30 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
                     extraction_refs=[extraction.chunk_id],
                 )
 
+    # Track raw count before any filtering
+    raw_count = len(merged)
+
     merged = _consolidate_overlaps(merged, entity_type)
+    count_after_consolidate = len(merged)
     
     # Filter known ships from all entity types except ships_and_minds
+    deterministic_removed = 0
     if entity_type in ("characters", "technology", "factions", "locations"):
+        before = len(merged)
         merged = _filter_known_ships(merged, entity_type)
+        deterministic_removed += before - len(merged)
     
     # Filter known entities from events (characters, ships, locations leak into events)
     if entity_type == "events":
+        before = len(merged)
         merged = _filter_entities_from_events(merged)
+        deterministic_removed += before - len(merged)
+    
+    # Calculate consolidation removals (alias dedup)
+    consolidate_removed = raw_count - count_after_consolidate
     
     write_json({"entities": [m.model_dump() for m in merged.values()]}, output_path)
+    initial_count = len(merged)  # Count after deterministic filters
     logger.info(
         "Merged %s entities (%s unique) -> %s",
         entity_type,
@@ -413,24 +430,46 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
             # Import here to avoid circular dependency
             import sys
             sys.path.insert(0, str(config.PROJECT_ROOT))
-            from deduplicate_entities import run_deduplication, run_cross_entity_dedup
+            from deduplicate_entities import run_deduplication, run_cross_entity_dedup, run_garbage_filter, load_entities
             
             if client is None:
                 client = GeminiClient()
             
-            # Within-entity dedup
-            removed = run_deduplication(entity_type, client)
-            if removed > 0:
-                logger.info("LLM deduplication removed %d duplicates from %s", removed, entity_type)
+            # Step 1: Garbage filter - remove obvious garbage (pronouns, numbered speakers)
+            garbage_removed = run_garbage_filter(entity_type, client)
+            if garbage_removed > 0:
+                logger.info("Garbage filter removed %d non-entities from %s", garbage_removed, entity_type)
             
-            # Cross-entity dedup: remove ships from non-ship entity types
+            # Step 2: Within-entity dedup
+            dedup_removed = run_deduplication(entity_type, client)
+            if dedup_removed > 0:
+                logger.info("LLM deduplication removed %d duplicates from %s", dedup_removed, entity_type)
+            
+            # Step 3: Cross-entity dedup - remove ships from non-ship entity types
+            cross_removed = 0
             if entity_type in ("characters", "technology", "factions", "locations"):
                 cross_removed = run_cross_entity_dedup(entity_type, client)
                 if cross_removed > 0:
                     logger.info("Cross-entity dedup removed %d ships from %s", cross_removed, entity_type)
+            
+            # Get final count for stats
+            final_count = len(load_entities(entity_type))
         except Exception as e:
             logger.warning("LLM deduplication failed for %s: %s", entity_type, e)
+            garbage_removed = dedup_removed = cross_removed = 0
+            final_count = len(read_json(output_path).get("entities", []))
     else:
         logger.info("Skipping LLM deduplication for %s (--skip-dedup)", entity_type)
+        garbage_removed = dedup_removed = cross_removed = 0
+        final_count = len(read_json(output_path).get("entities", []))
     
-    return output_path
+    return {
+        "entity_type": entity_type,
+        "raw": raw_count,
+        "consolidate": consolidate_removed,
+        "deterministic": deterministic_removed,
+        "garbage": garbage_removed,
+        "dedup": dedup_removed,
+        "cross": cross_removed,
+        "final": final_count,
+    }

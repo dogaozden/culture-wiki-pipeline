@@ -15,6 +15,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from tqdm import tqdm
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -105,7 +106,47 @@ ENTITIES AND THEIR FACTS:
 
 """
 
+# Garbage filter prompt - identifies generic descriptors that shouldn't be entities
+GARBAGE_FILTER_PROMPT = """You are filtering extracted entities from an Iain M. Banks Culture series novel.
+
+IMPORTANT: BE EXTREMELY CONSERVATIVE. Only mark entities as garbage if you are 100% certain they are NOT proper names. When in doubt, KEEP the entity.
+
+Your task: Identify ONLY the most obvious garbage — pronouns, numbered speakers, and clearly generic descriptors that could never be proper names.
+
+DEFINITE GARBAGE (mark DELETE only if EXACTLY like these):
+- Pronouns/references: "I", "we", "they", "the man", "the woman", "the girl"
+- Numbered speakers: "Speaker 1", "Speaker 2", "Speaker 3"
+- Vague descriptors: "our lass", "the other one", "someone"
+
+KEEP ALL OF THESE (do NOT mark as garbage):
+- Any capitalized proper name (even if short like "Byr", "Tier", "Aist")
+- Ship names (even weird ones like "Jaundiced Outlook", "Meatfucker")
+- Species/faction names: "Affront", "Affronters", "Culture", "Elench", "Homomda"
+- Location names: "Pittance", "God'shole", "Tier"
+- Technology terms: "effector", "displacer", "Gelfield Suit"
+- Military ranks WITH names: "Fleet Captain Treveler"
+- Group names: "Interesting Times Gang", "Peace faction"
+- ANY name you recognize from the Culture series
+
+CRITICAL: If you're unsure, output {{"garbage": []}} — it's better to keep garbage than delete legitimate entities.
+
+Output JSON:
+```json
+{{
+  "garbage": [
+    {{"name": "Speaker 1", "reason": "Numbered speaker, not a proper name"}},
+    {{"name": "the woman", "reason": "Generic descriptor"}}
+  ]
+}}
+```
+
+---
+{entity_type} ENTITIES TO CHECK:
+
+"""
+
 ALIAS_BATCH_SIZE = 10  # Entities per LLM call for alias filtering
+GARBAGE_BATCH_SIZE = 50  # Entities per LLM call for garbage filtering
 
 
 def _ref_to_path(ref: str, entity_type: str) -> Path:
@@ -212,6 +253,99 @@ def load_entities(entity_type: str) -> list[dict]:
     return data.get("entities", [])
 
 
+def find_garbage_entities(client: GeminiClient, entity_type: str, entities: list[dict]) -> list[dict]:
+    """
+    Use LLM to identify garbage entities (generic descriptors, not proper names).
+    Returns list of {"name": str, "reason": str} for entities to remove.
+    """
+    if not entities:
+        return []
+    
+    garbage_found = []
+    
+    # Process in batches with progress bar
+    total_batches = (len(entities) + GARBAGE_BATCH_SIZE - 1) // GARBAGE_BATCH_SIZE
+    for i in tqdm(range(0, len(entities), GARBAGE_BATCH_SIZE), desc=f"Garbage filter ({entity_type})", total=total_batches):
+        batch = entities[i:i + GARBAGE_BATCH_SIZE]
+        
+        # Build entity list for prompt
+        entity_list = "\n".join(f"- {e['canonical_name']}" for e in batch)
+        prompt = GARBAGE_FILTER_PROMPT.format(entity_type=entity_type) + entity_list
+        
+        try:
+            response = client.client.models.generate_content(
+                model=client.model_name,
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json",
+                }
+            )
+            result = json.loads(response.text)
+            garbage_found.extend(result.get("garbage", []))
+        except Exception as e:
+            logger.error("Garbage filter batch %d failed: %s", batch_num, e)
+    
+    return garbage_found
+
+
+def apply_garbage_filter(entity_type: str, garbage: list[dict]) -> int:
+    """Remove identified garbage entities from the merged JSON."""
+    if not garbage:
+        return 0
+    
+    path = config.ENTITIES_DIR / f"{entity_type}.json"
+    data = read_json(path)
+    entities = data.get("entities", [])
+    
+    # Build set of names to delete (case-insensitive)
+    delete_names = {g["name"].lower() for g in garbage}
+    
+    # Filter out garbage
+    original_count = len(entities)
+    filtered = [
+        e for e in entities 
+        if e.get("canonical_name", "").lower() not in delete_names
+    ]
+    
+    removed = original_count - len(filtered)
+    if removed > 0:
+        logger.info("Removed %d garbage entities from %s", removed, entity_type)
+        for g in garbage:
+            if g["name"].lower() in delete_names:
+                logger.info("  - %s (%s)", g["name"], g.get("reason", ""))
+        data["entities"] = filtered
+        write_json(data, path)
+    
+    return removed
+
+
+def run_garbage_filter(entity_type: str, client: GeminiClient = None) -> int:
+    """
+    Run LLM garbage filter to remove generic descriptors from entity list.
+    Returns the number of entities removed.
+    """
+    if client is None:
+        client = GeminiClient()
+    
+    entities = load_entities(entity_type)
+    if not entities:
+        return 0
+    
+    logger.info("Running garbage filter on %d %s entities...", len(entities), entity_type)
+    
+    garbage = find_garbage_entities(client, entity_type, entities)
+    
+    if not garbage:
+        logger.info("No garbage found in %s", entity_type)
+        return 0
+    
+    logger.info("Found %d garbage entities in %s:", len(garbage), entity_type)
+    
+    return apply_garbage_filter(entity_type, garbage)
+
+
+
+
 def format_entity_list(entities: list[dict], entity_type: str, alias_facts_map: dict[str, list[str]] = None) -> str:
     """Format entities for the LLM prompt, including alias-related facts."""
     if alias_facts_map is None:
@@ -251,13 +385,11 @@ def find_duplicates(client: GeminiClient, entity_type: str, entities: list[dict]
     if len(entities) <= BATCH_SIZE:
         return _find_duplicates_single_batch(client, entity_type, entities, alias_facts_map)
     
-    # Process in batches for large entity lists
+    # Process in batches for large entity lists with progress bar
     all_duplicates = []
-    for i in range(0, len(entities), BATCH_SIZE):
+    total_batches = (len(entities) + BATCH_SIZE - 1) // BATCH_SIZE
+    for i in tqdm(range(0, len(entities), BATCH_SIZE), desc=f"Dedup ({entity_type})", total=total_batches):
         batch = entities[i:i + BATCH_SIZE]
-        batch_num = (i // BATCH_SIZE) + 1
-        total_batches = (len(entities) + BATCH_SIZE - 1) // BATCH_SIZE
-        logger.info("Dedup batch %d/%d (%d entities)...", batch_num, total_batches, len(batch))
         
         batch_duplicates = _find_duplicates_single_batch(client, entity_type, batch, alias_facts_map)
         all_duplicates.extend(batch_duplicates)

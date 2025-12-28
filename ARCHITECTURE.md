@@ -127,6 +127,19 @@ Combine all chapter extractions into unified entity lists.
 }
 ```
 
+**Merge Summary Report:**  
+At the end of merge, a table shows what each filter stage removed:
+
+| Column | Filter Type | Description |
+|--------|-------------|-------------|
+| **Raw** | — | Total entities before any filtering |
+| **Consolid** | Deterministic | Alias slug consolidation |
+| **Determ** | Deterministic | Ship/event entity removal |
+| **Garbage** | LLM | Generic descriptor removal |
+| **Dedup** | LLM | Within-entity duplicate removal |
+| **Cross** | LLM | Cross-entity ship removal |
+| **Final** | — | Entities after all filtering |
+
 ---
 
 ## Stage 3: SYNTHESIS ✍️

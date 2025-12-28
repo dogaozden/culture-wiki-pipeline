@@ -28,10 +28,11 @@ MAX_CHAPTER_TOKENS = 50_000
 MIN_CHAPTER_TOKENS = 500
 
 # API configuration
-# 2.5-flash-lite: Better instruction following, no semantic hallucinations (use for extraction/merge)
-# 3-flash: Better prose quality but slower, prone to hallucinations (use for synthesis)
-GEMINI_MODEL = "gemini-2.5-flash-lite-preview-09-2025"  # Default for extract/merge
-GEMINI_MODEL_SYNTHESIS = "gemini-2.5-flash-lite-preview-09-2025"  # Dev default (cheap). Use --model gemini-3-flash-preview for prod
+# 2.5-flash-lite: Better instruction following, no semantic hallucinations (use for extraction)
+# 3-flash: Better dedup accuracy (use for merge), better prose quality (use for synthesis)
+GEMINI_MODEL = "gemini-2.5-flash-lite-preview-09-2025"  # Default for extract
+GEMINI_MODEL_MERGE = "gemini-3-flash-preview"  # Default for merge - better dedup accuracy
+GEMINI_MODEL_SYNTHESIS = "gemini-2.5-flash-lite-preview-09-2025"  # Dev default. Use --model gemini-3-flash-preview for prod
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 MAX_RETRIES = 3
 REQUESTS_PER_MINUTE = 60
