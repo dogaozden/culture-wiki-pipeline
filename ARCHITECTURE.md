@@ -7,10 +7,10 @@
 ## 🔄 The Pipeline
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  EXTRACT    │ →  │    MERGE    │ →  │  SYNTHESIZE │ →  │   RENDER    │
-│(per chapter)│    │ (combine)   │    │ (write)     │    │ (HTML)      │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    CHUNK    │ →  │   EXTRACT   │ →  │    MERGE    │ →  │  SYNTHESIZE │ →  │   RENDER    │
+│ (split text)│    │(per chapter)│    │ (combine)   │    │ (write)     │    │ (HTML)      │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
 > [!IMPORTANT]  
@@ -20,16 +20,44 @@
 > | Stage | Model | Why |
 > |-------|-------|-----|
 > | Extract | `gemini-2.5-flash-lite` | Better instruction following, no semantic hallucinations |
-> | Merge | `gemini-2.5-flash-lite` | Same — accurate deduplication |
-> | Synthesize | `gemini-3-flash-preview` | **Better prose quality** (auto-configured) |
+> | Merge | `gemini-3-flash-preview` | Better dedup accuracy (events: 5 → 97 entities vs 2.5 Lite) |
+> | Synthesize | `gemini-2.5-flash-lite` | Cheaper for high-volume; use `--model gemini-3-flash-preview` for prod |
 >
 > Testing revealed `gemini-3-flash-preview` causes **semantic hallucinations** during extraction (facts not supported by quotes), but produces better wiki article prose. The pipeline now uses each model where it performs best.
 
 > [!TIP]
 > **Other Quality-of-Life Features:**
-> - **Progress bars**: All stages show tqdm progress bars
+> - **Progress bars**: All stages show tqdm progress bars with entity type names
 > - **Opt-in cache**: LLM cache is OFF by default. Use `--use-cache` to enable.
 > - **Tolerance validation**: Large entities (80+ facts) allow up to 3 missing citations
+> - **`--book` flag**: Process a single book (works for chunk/extract/merge/synthesize stages)
+
+---
+
+## Stage 0: CHUNK 📄
+
+**What happens:**  
+Split book markdown files into processable chunks that fit within token limits.
+
+**The process:**
+1. **Load chapter files** — Reads `*.md` and `*.html` from `books/{BookName}/`
+2. **Split by scene breaks** — Uses `***` or `---` separators first
+3. **Split by paragraphs** — Falls back to paragraph splitting if no scene breaks
+4. **Token limit check** — Each chunk stays under `MAX_CHAPTER_TOKENS` (50,000)
+
+**When to use:**  
+If your book has very long chapters that exceed the token limit, run chunk first:
+```bash
+python3 run.py --stage chunk --book SurfaceDetail
+```
+
+> 💡 **Note:** For most pre-split books (like Excession), chunking happens automatically during extract. You only need to run chunk explicitly if you're debugging or have unusual file formats.
+
+**Input:**  
+`books/{BookName}/*.md` — One markdown file per chapter
+
+**Output:**  
+Chapter objects in memory (no disk writes) → passed to extract stage
 
 ---
 
@@ -255,6 +283,7 @@ Turn JSON articles into a browseable HTML website.
 - Cross-entity links (character can link to ship they're on)
 - Book-organized navigation
 - Prominence-based sorting
+- **Apocrypha rendering**: Markdown files in `books/Apocrypha/` are rendered directly to HTML (bypasses the entity extraction pipeline)
 
 ---
 
@@ -271,11 +300,11 @@ A separate component that exposes the wiki to Claude Desktop:
 ## 📁 Data Flow
 
 ```
-novels/excession/          ← Raw chapter text files
+books/{book}/              ← Raw chapter text files (md/html)
     ↓
 data/extractions/          ← Per-chapter, per-type JSON extractions
     ↓
-data/entities/             ← Merged entity lists (one per type)
+data/entities/             ← Merged entity lists (one per type, or {type}_{book}.json for book-specific)
     ↓
 data/articles/             ← Synthesized wiki articles
     ↓
@@ -311,7 +340,7 @@ wiki/                      ← Rendered HTML website
 
 ---
 
-*Last updated: December 25, 2025*
+*Last updated: December 29, 2025*
 ## 💻 CLI Usage
 
 ### Setup
@@ -358,18 +387,24 @@ python3 run.py --stage clean --clean output --yes
    ```bash
    # Merge all extractions across books
    python3 run.py --stage merge --model gemini-2.5-flash-lite-preview-09-2025
-   
+
    # Skip LLM deduplication (faster)
    python3 run.py --stage merge --skip-dedup
+
+   # Merge for a specific book only (creates {entity_type}_{book_slug}.json)
+   python3 run.py --stage merge --book surface_detail
    ```
 
 3. **Synthesis (API calls)**
    ```bash
    # Synthesize articles (skips existing unless --force)
    python3 run.py --stage synthesize
-   
+
    # With specific settings
    python3 run.py --stage synthesize --workers 8 --max-retries 5 --model gemini-2.5-flash-lite-preview-09-2025
+
+   # Synthesize for a specific book only (uses book-specific entity file if exists)
+   python3 run.py --stage synthesize --book surface_detail
    ```
 
 4. **Render (Local)**
@@ -388,6 +423,7 @@ python3 run.py --stage clean --clean output --yes
 - `--limit N`: Process only N items (speed up testing).
 - `--workers N`: Set parallel workers (default: 32).
 - `--max-retries N`: Set max synthesis retries on citation failures (default: 10).
+- `--book`: Limit processing to a specific book (works for chunk/extract/merge/synthesize).
 - `--skip-dedup`: Skip LLM deduplication during merge.
 - `--use-cache`: Enable LLM response caching (default: OFF). Cache is model-specific.
 - `--model`: Override the default model for the stage.

@@ -453,13 +453,35 @@ def _build_chunk_context_map() -> Dict[str, Chapter]:
 
 
 def synthesize_articles(
-    entity_type: str, client: GeminiClient, force: bool = False, max_retries: int = None
+    entity_type: str, client: GeminiClient, force: bool = False, max_retries: int = None, book_slug: str = None
 ) -> None:
     """Generate wiki articles for a specific entity type."""
     # Default max retries if not specified
     MAX_SYNTHESIS_RETRIES = max_retries if max_retries is not None else 10
     
-    merged_entities = _load_merged_entities(entity_type)
+    # Load from book-specific entity file if filtering by book
+    if book_slug:
+        entity_file = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+        if not entity_file.exists():
+            logger.warning("No book-specific entity file found at %s, falling back to main file", entity_file)
+            entity_file = config.ENTITIES_DIR / f"{entity_type}.json"
+            merged_entities = _load_merged_entities(entity_type)
+            # Filter entities to only those appearing in the book
+            # Normalize: convert hyphens/underscores for consistent matching
+            normalized_slug = book_slug.lower().replace("-", "_")
+            merged_entities = [e for e in merged_entities if any(
+                b.lower().replace("-", "_") == normalized_slug for b in e.appears_in
+            )]
+            logger.info("Filtered entities from %d to %d for book: %s", len(_load_merged_entities(entity_type)), len(merged_entities), book_slug)
+        else:
+            # Load from book-specific file
+            from .utils import read_json
+            data = read_json(entity_file)
+            merged_entities = [MergedEntity(**e) for e in data.get("entities", [])]
+            logger.info("Loaded %d entities from book-specific file: %s", len(merged_entities), entity_file)
+    else:
+        merged_entities = _load_merged_entities(entity_type)
+    
     extractions = _load_extractions(entity_type)
     chunk_map = _build_chunk_context_map()
     fact_lookup = _build_fact_lookup(extractions)  # For Python citation rebuild
@@ -596,23 +618,26 @@ def synthesize_articles(
                     )
                     continue
                 logger.error("Failed to synthesize %s after %d attempts: %s", merged.canonical_name, MAX_SYNTHESIS_RETRIES, exc)
-                if force:
-                    raise
+                # Continue to next entity instead of crashing
 
     if config.PARALLEL_WORKERS <= 1:
         for merged in pending:
             _synthesize_one(merged)
         return
 
+    failed_count = 0
     with ThreadPoolExecutor(max_workers=config.PARALLEL_WORKERS) as executor:
         futures = {executor.submit(_synthesize_one, merged): merged for merged in pending}
         for future in tqdm(as_completed(futures), total=len(futures), desc=f"Synthesizing {entity_type}"):
             exc = future.exception()
             if exc:
+                failed_count += 1
                 logger.error(
                     "Synthesis worker failed for %s: %s",
                     futures[future].canonical_name,
                     exc,
                 )
-                if force:
-                    raise exc
+                # Continue to next entity instead of crashing
+    
+    if failed_count > 0:
+        logger.warning("Synthesis completed with %d failures out of %d entities", failed_count, len(pending))

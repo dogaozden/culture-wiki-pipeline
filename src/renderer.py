@@ -272,7 +272,11 @@ def _get_books() -> List[Dict]:
 
 def _filter_articles_by_book(articles: List[Article], book_slug: str) -> List[Article]:
     """Filter articles to only those appearing in a specific book."""
-    return [a for a in articles if book_slug in a.appears_in]
+    # Normalize: convert hyphens/underscores for consistent matching
+    normalized_slug = book_slug.lower().replace("-", "_")
+    return [a for a in articles if any(
+        b.lower().replace("-", "_") == normalized_slug for b in a.appears_in
+    )]
 
 
 def render_books_landing(books: List[Dict], type_map: Dict[str, List[Article]]) -> None:

@@ -81,9 +81,9 @@ class Pipeline:
                 limit=limit,
             )
         if stage in ("merge", "all"):
-            self.merge(entity_type=entity_type, force=force, skip_dedup=skip_dedup)
+            self.merge(entity_type=entity_type, force=force, skip_dedup=skip_dedup, book=book)
         if stage in ("synthesize", "all"):
-            self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries)
+            self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries, book=book)
         if stage in ("render", "all"):
             self.render()
 
@@ -115,7 +115,7 @@ class Pipeline:
                 limit=limit,
             )
 
-    def merge(self, entity_type: Optional[str] = None, force: bool = False, skip_dedup: bool = False) -> None:
+    def merge(self, entity_type: Optional[str] = None, force: bool = False, skip_dedup: bool = False, book: Optional[str] = None) -> None:
         from .merger import merge_entities
         from .gemini_client import GeminiClient
 
@@ -125,6 +125,12 @@ class Pipeline:
         if config.GEMINI_MODEL != "gemini-2.5-flash-lite-preview-09-2025":
             # User explicitly chose a model via --model, respect that
             merge_model = config.GEMINI_MODEL
+        
+        # Resolve book slug if specified
+        book_slug = None
+        if book:
+            book_slug = slugify(book)
+            logger.info("Filtering merge to book: %s", book_slug)
         
         client = None
         if not skip_dedup:
@@ -136,7 +142,7 @@ class Pipeline:
         all_stats = []
         for idx, et in enumerate(types, 1):
             logger.info("=== Merging %d/%d: %s ===", idx, len(types), et)
-            stats = merge_entities(et, force=force, skip_dedup=skip_dedup, client=client)
+            stats = merge_entities(et, force=force, skip_dedup=skip_dedup, client=client, book_slug=book_slug)
             all_stats.append(stats)
         
         # Final summary table
@@ -158,7 +164,7 @@ class Pipeline:
         logger.info("=" * 100)
 
     def synthesize(
-        self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None
+        self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None, book: Optional[str] = None
     ) -> None:
         from .synthesizer import synthesize_articles
         from .gemini_client import GeminiClient
@@ -171,13 +177,19 @@ class Pipeline:
             # User explicitly chose a model via --model, respect that
             synthesis_model = config.GEMINI_MODEL
         
+        # Resolve book slug if specified
+        book_slug = None
+        if book:
+            book_slug = slugify(book)
+            logger.info("Filtering synthesis to book: %s", book_slug)
+        
         client = GeminiClient(model_name=synthesis_model)
         client.preflight()
         logger.info("Using model %s for synthesis", synthesis_model)
         types = [entity_type] if entity_type else config.ENTITY_TYPES
         for idx, et in enumerate(types, 1):
             logger.info("=== Synthesizing %d/%d: %s ===", idx, len(types), et)
-            synthesize_articles(et, client, force=force, max_retries=max_retries)
+            synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug)
 
     def render(self) -> None:
         from .renderer import render_all

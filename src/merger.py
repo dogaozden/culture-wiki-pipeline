@@ -341,7 +341,7 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity], entity_type: str = No
     return consolidated
 
 
-def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None) -> dict:
+def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None, book_slug: str = None) -> dict:
     """
     Merge entities of a type and write merged JSON.
     
@@ -350,17 +350,30 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
         force: Overwrite existing merged file
         skip_dedup: Skip LLM-based semantic deduplication (faster but less thorough)
         client: Optional GeminiClient for deduplication (created if needed)
+        book_slug: Optional book slug to filter extractions (e.g. "surface_detail")
     
     Returns:
         dict with keys: initial, garbage, dedup, cross, final (counts)
     """
-    output_path = config.ENTITIES_DIR / f"{entity_type}.json"
+    # Use book-specific output path if filtering by book
+    if book_slug:
+        output_path = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+    else:
+        output_path = config.ENTITIES_DIR / f"{entity_type}.json"
     if output_path.exists() and not force:
         logger.info("Merged entities already exist at %s", output_path)
         count = len(read_json(output_path).get("entities", []))
         return {"entity_type": entity_type, "raw": count, "consolidate": 0, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": count}
 
     extractions = _load_extractions(entity_type)
+    
+    # Filter to specific book if requested
+    if book_slug:
+        original_count = len(extractions)
+        # Normalize: convert hyphens to underscores for comparison (slugify uses hyphens, chunk_ids use underscores)
+        normalized_book_slug = book_slug.lower().replace("-", "_")
+        extractions = [e for e in extractions if e.chunk_id.lower().replace("-", "_").startswith(normalized_book_slug)]
+        logger.info("Filtered extractions from %d to %d for book: %s (normalized: %s)", original_count, len(extractions), book_slug, normalized_book_slug)
     merged: Dict[str, MergedEntity] = {}
 
     for extraction in tqdm(extractions, desc="Merging entities"):
