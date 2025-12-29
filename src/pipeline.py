@@ -116,7 +116,7 @@ class Pipeline:
             )
 
     def merge(self, entity_type: Optional[str] = None, force: bool = False, skip_dedup: bool = False, book: Optional[str] = None) -> None:
-        from .merger import merge_entities
+        from .merger import merge_entities, apply_entity_filters, build_type_voting_map, get_type_exclusions
         from .gemini_client import GeminiClient
 
         # Use merge-specific model (3 Flash for better dedup accuracy)
@@ -138,30 +138,91 @@ class Pipeline:
             client.preflight()
             logger.info("Using model %s for merge", merge_model)
         
+        # Build type voting map ONCE before merging (scans all extractions)
+        logger.info("Building type voting map (scanning all extractions)...")
+        voting_map = build_type_voting_map(book_slug=book_slug)
+        logger.info("Type voting map: %d unique entity names found", len(voting_map))
+        
         types = [entity_type] if entity_type else config.ENTITY_TYPES
-        all_stats = []
+        
+        # ====================================================================
+        # PASS 1: Merge all types (type voting only, no cross-type filters)
+        # ====================================================================
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("PASS 1: Merging all entity types (type voting only)")
+        logger.info("=" * 80)
+        
+        merge_stats = []
         for idx, et in enumerate(types, 1):
             logger.info("=== Merging %d/%d: %s ===", idx, len(types), et)
-            stats = merge_entities(et, force=force, skip_dedup=skip_dedup, client=client, book_slug=book_slug)
-            all_stats.append(stats)
+            
+            # Get exclusions for this entity type based on type voting
+            type_exclusions = get_type_exclusions(voting_map, et)
+            if type_exclusions:
+                logger.info("Type voting: %d entities will be excluded from %s", len(type_exclusions), et)
+            
+            # Pass 1: skip_filters=True (no cross-type or LLM filters)
+            stats = merge_entities(et, force=force, skip_dedup=True, client=None, book_slug=book_slug, type_exclusions=type_exclusions, skip_filters=True)
+            merge_stats.append(stats)
         
-        # Final summary table
+        # ====================================================================
+        # PASS 2: Apply filters (cross-type + LLM) with fresh data
+        # ====================================================================
         logger.info("")
-        logger.info("=" * 100)
+        logger.info("=" * 80)
+        logger.info("PASS 2: Applying filters (all entity data now available)")
+        logger.info("=" * 80)
+        
+        filter_stats = []
+        for idx, et in enumerate(types, 1):
+            logger.info("=== Filtering %d/%d: %s ===", idx, len(types), et)
+            stats = apply_entity_filters(et, skip_dedup=skip_dedup, client=client, book_slug=book_slug)
+            filter_stats.append(stats)
+        
+        # ====================================================================
+        # Summary table
+        # ====================================================================
+        logger.info("")
+        logger.info("=" * 116)
         logger.info("MERGE COMPLETE - Summary by Filter Stage")
-        logger.info("=" * 100)
-        logger.info("%-18s %6s %8s %8s %8s %8s %8s %8s", "Entity Type", "Raw", "Consolid", "Determ", "Garbage", "Dedup", "Cross", "Final")
-        logger.info("-" * 100)
-        totals = {"raw": 0, "consolidate": 0, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": 0}
-        for s in all_stats:
-            logger.info("%-18s %6d %8d %8d %8d %8d %8d %8d", 
-                       s["entity_type"], s["raw"], -s["consolidate"], -s["deterministic"], -s["garbage"], -s["dedup"], -s["cross"], s["final"])
+        logger.info("=" * 116)
+        logger.info("%-18s %6s %8s %8s %8s %8s %8s %8s %8s", "Entity Type", "Raw", "Consolid", "TypeVote", "Determ", "Garbage", "Dedup", "Cross", "Final")
+        logger.info("-" * 116)
+        totals = {"raw": 0, "consolidate": 0, "type_voting": 0, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": 0}
+        
+        for ms, fs in zip(merge_stats, filter_stats):
+            # Combine stats from both passes
+            row = {
+                "entity_type": ms["entity_type"],
+                "raw": ms["raw"],
+                "consolidate": ms["consolidate"],
+                "type_voting": ms.get("type_voting", 0),
+                "deterministic": fs["deterministic"],
+                "garbage": fs["garbage"],
+                "dedup": fs["dedup"],
+                "cross": fs["cross"],
+                "final": fs["final"],
+            }
+            logger.info("%-18s %6d %8d %8d %8d %8d %8d %8d %8d", 
+                       row["entity_type"], row["raw"], -row["consolidate"], -row["type_voting"], -row["deterministic"], -row["garbage"], -row["dedup"], -row["cross"], row["final"])
             for k in totals:
-                totals[k] += s[k]
-        logger.info("-" * 100)
-        logger.info("%-18s %6d %8d %8d %8d %8d %8d %8d", 
-                   "TOTAL", totals["raw"], -totals["consolidate"], -totals["deterministic"], -totals["garbage"], -totals["dedup"], -totals["cross"], totals["final"])
-        logger.info("=" * 100)
+                totals[k] += row.get(k, 0)
+        
+        logger.info("-" * 116)
+        logger.info("%-18s %6d %8d %8d %8d %8d %8d %8d %8d", 
+                   "TOTAL", totals["raw"], -totals["consolidate"], -totals["type_voting"], -totals["deterministic"], -totals["garbage"], -totals["dedup"], -totals["cross"], totals["final"])
+        logger.info("=" * 116)
+        logger.info("")
+        logger.info("LEGEND:")
+        logger.info("  Raw       - Total entities extracted from source text before any filtering")
+        logger.info("  Consolid  - Entities merged because they share names or aliases (e.g., 'Dajeil' + 'Dajeil Gelian')")
+        logger.info("  TypeVote  - Removed because entity appears more often in a different type (e.g., 'Veppers' is 95%% character, 5%% ship)")
+        logger.info("  Determ    - Removed by cross-type filters: known ship names, known character names in wrong types")
+        logger.info("  Garbage   - Removed by LLM: generic terms like 'the woman', 'Speaker 1' that aren't real entities")
+        logger.info("  Dedup     - Removed by LLM: semantic duplicates the filters missed (e.g., 'the Sleeper' = 'Sleeper Service')")
+        logger.info("  Cross     - Removed by LLM: entities that belong to a different type (e.g., ship names in characters)")
+        logger.info("  Final     - Entities remaining after all filtering stages")
 
     def synthesize(
         self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None, book: Optional[str] = None

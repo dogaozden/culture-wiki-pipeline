@@ -132,18 +132,28 @@ Combine all chapter extractions into unified entity lists.
    Picks the name that appears in the **most chapters** (by extraction_refs count).
    This ensures "Sleeper Service" (48 chapters) beats "Quietly Confident" (mentioned once).
 
-3. **LLM Garbage Filter (NEW Dec 2025)**  
+3. **Type Voting (NEW)**
+   - Scans ALL extractions to count how often an entity appears in each type.
+   - Example: "Veppers" appears 50 times as `character`, 3 times as `ship`.
+   - Action: Removes "Veppers" from `ships` because `characters` is the dominant type.
+   - Prevents cross-contamination (e.g. ship names appearing as locations).
+
+4. **LLM Garbage Filter (NEW Dec 2025)**
    - Removes generic descriptors: "the woman", "Admiral", "Speaker 1"
    - Runs before within-entity dedup
    - Uses 3 Flash by default (much more conservative than 2.5 Flash Lite)
 
-4. **LLM Deduplication**  
+5. **LLM Deduplication**
    - First runs **alias pre-filter**: asks LLM to identify facts mentioning former names
    - Then runs **main dedup**: compares entities with their alias-related facts
    - Batched processing with retry logic for API failures
    - **Default model: gemini-3-flash-preview** for better accuracy
 
-> ✅ **Fixed: Canonical Name Selection**  
+> 🏗️ **Two-Pass Architecture**
+> 1. **Pass 1 (Voting):** Scans all extractions to build the type voting map and performs initial deterministic merge.
+> 2. **Pass 2 (Filtering):** Applies Cross-type filters (using data from all types) and LLM filters.
+
+> ✅ **Fixed: Canonical Name Selection**
 > Previously picked the longest name, causing "Quietly Confident" to be canonical instead of "Sleeper Service".
 > Now uses chapter frequency — names appearing in more chapters win.
 
@@ -167,6 +177,7 @@ At the end of merge, a table shows what each filter stage removed:
 |--------|-------------|-------------|
 | **Raw** | — | Total entities before any filtering |
 | **Consolid** | Deterministic | Alias slug consolidation |
+| **TypeVote** | Deterministic | Dominant type enforcement |
 | **Determ** | Deterministic | Ship/event entity removal |
 | **Garbage** | LLM | Generic descriptor removal |
 | **Dedup** | LLM | Within-entity duplicate removal |
@@ -274,6 +285,8 @@ Turn JSON articles into a browseable HTML website.
 2. **Render HTML** from Jinja templates
 3. **Copy assets** — CSS, fonts, images
 4. **Generate indexes** — Book pages, entity type pages
+5. **Generate Search Index** — `search_index.json` for client-side search
+6. **Generate Graph** — `graph_data.json` and `graph.html` for relationship visualization
 
 **Output:**  
 `wiki/` — Static HTML site you can serve locally or deploy
@@ -281,6 +294,8 @@ Turn JSON articles into a browseable HTML website.
 **Features:**
 - Clickable citations (scroll to source quote)
 - Cross-entity links (character can link to ship they're on)
+- **Interactive Graph**: Visual exploration of entity relationships
+- **Instant Search**: Client-side search across all entities
 - Book-organized navigation
 - Prominence-based sorting
 - **Apocrypha rendering**: Markdown files in `books/Apocrypha/` are rendered directly to HTML (bypasses the entity extraction pipeline)

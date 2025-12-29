@@ -644,17 +644,21 @@ def _generate_graph_data(type_map: Dict[str, List[Article]]) -> None:
     nodes = []
     edges = []
     node_ids: Set[str] = set()
+    all_books: Set[str] = set()
     
     for entity_type, articles in type_map.items():
         for article in articles:
             node_id = f"{entity_type}:{article.slug}"
             node_ids.add(node_id)
+            books = article.appears_in if article.appears_in else []
+            all_books.update(books)
             nodes.append({
                 "id": node_id,
                 "label": article.entity_name,
                 "type": entity_type,
                 "url": f"{entity_type}/{article.slug}.html",
                 "prominence": article.prominence_score,
+                "books": books,
             })
     
     # Build edges from related_entities
@@ -692,10 +696,26 @@ def _render_graph_page() -> None:
         logger.warning("graph.html template not found, skipping graph page")
         return
     
+    # Read the graph data to embed in the page (avoids CORS issues with file://)
+    graph_data_path = config.WIKI_DIR / "graph_data.json"
+    if graph_data_path.exists():
+        graph_json = graph_data_path.read_text(encoding="utf-8")
+        # Extract unique books from the graph data
+        graph_data = json.loads(graph_json)
+        all_books = set()
+        for node in graph_data.get("nodes", []):
+            all_books.update(node.get("books", []))
+        books = sorted(all_books)
+    else:
+        graph_json = '{"nodes": [], "edges": []}'
+        books = []
+    
     out_path = config.WIKI_DIR / "graph.html"
     html = template.render(
         title="Entity Relationship Graph",
         root_path="",
+        graph_json=graph_json,
+        books=books,
     )
     out_path.write_text(html, encoding="utf-8")
     logger.info("Rendered graph page")

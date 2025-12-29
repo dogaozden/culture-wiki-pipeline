@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 
 from . import config
 from .models import EntityExtraction, MergedEntity
@@ -13,6 +14,96 @@ from .gemini_client import GeminiClient
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# TYPE VOTING: Ensures entities appear only in their dominant type
+# ============================================================================
+
+def build_type_voting_map(book_slug: Optional[str] = None) -> Dict[str, Counter]:
+    """
+    Scan ALL extractions across ALL entity types and count occurrences per entity name.
+    
+    Returns:
+        Dict mapping entity_slug -> Counter({entity_type: count})
+        e.g., {"veppers": Counter({"characters": 50, "ships_and_minds": 3})}
+    """
+    type_counts: Dict[str, Counter] = {}
+    
+    for entity_type in config.ENTITY_TYPES:
+        base_dir = config.EXTRACTIONS_DIR / entity_type
+        if not base_dir.exists():
+            continue
+        
+        for book_dir in base_dir.iterdir():
+            if not book_dir.is_dir():
+                continue
+            
+            for path in sorted(book_dir.glob("*.json")):
+                try:
+                    extraction = EntityExtraction(**read_json(path))
+                    
+                    # Filter by book if specified
+                    if book_slug:
+                        chunk_id = extraction.chunk_id.lower().replace("-", "_")
+                        normalized_book = book_slug.lower().replace("-", "_")
+                        if not chunk_id.startswith(normalized_book):
+                            continue
+                    
+                    for ent in extraction.entities:
+                        # Count the canonical name
+                        slug = slugify(ent.name)
+                        if slug:
+                            if slug not in type_counts:
+                                type_counts[slug] = Counter()
+                            type_counts[slug][entity_type] += 1
+                        
+                        # Also count aliases (they map to the same entity)
+                        for alias in ent.aliases:
+                            alias_slug = slugify(alias)
+                            if alias_slug and len(alias_slug) > 2:
+                                if alias_slug not in type_counts:
+                                    type_counts[alias_slug] = Counter()
+                                type_counts[alias_slug][entity_type] += 1
+                                
+                except Exception as e:
+                    logger.debug("Skipping %s: %s", path, e)
+    
+    return type_counts
+
+
+def get_type_exclusions(voting_map: Dict[str, Counter], entity_type: str) -> Set[str]:
+    """
+    Get entity slugs that should be EXCLUDED from this entity_type because
+    they appear more frequently in a different type.
+    
+    Args:
+        voting_map: Output from build_type_voting_map()
+        entity_type: The type we're currently merging
+        
+    Returns:
+        Set of entity slugs to exclude from this type
+    """
+    exclusions: Set[str] = set()
+    
+    for entity_slug, type_counter in voting_map.items():
+        # Skip if this entity only appears in one type
+        if len(type_counter) <= 1:
+            continue
+        
+        # Find the dominant type (highest count)
+        dominant_type = type_counter.most_common(1)[0][0]
+        
+        # If the current entity_type is NOT the dominant type, exclude this entity
+        if entity_type in type_counter and dominant_type != entity_type:
+            exclusions.add(entity_slug)
+            logger.debug(
+                "Type voting: excluding '%s' from %s (dominant: %s with %d vs %d)",
+                entity_slug, entity_type, dominant_type,
+                type_counter[dominant_type], type_counter[entity_type]
+            )
+    
+    return exclusions
 
 # Patterns for filtering out non-name aliases (hallucinated descriptive phrases)
 # These are common patterns that LLMs extract as "aliases" but aren't proper names
@@ -393,7 +484,7 @@ def _consolidate_overlaps(merged: Dict[str, MergedEntity], entity_type: str = No
     return consolidated
 
 
-def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None, book_slug: str = None) -> dict:
+def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = False, client: GeminiClient = None, book_slug: str = None, type_exclusions: Optional[Set[str]] = None, skip_filters: bool = False) -> dict:
     """
     Merge entities of a type and write merged JSON.
     
@@ -403,6 +494,8 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
         skip_dedup: Skip LLM-based semantic deduplication (faster but less thorough)
         client: Optional GeminiClient for deduplication (created if needed)
         book_slug: Optional book slug to filter extractions (e.g. "surface_detail")
+        type_exclusions: Optional set of entity slugs to exclude (from type voting)
+        skip_filters: If True, skip cross-type filters and LLM filters (for two-pass architecture)
     
     Returns:
         dict with keys: initial, garbage, dedup, cross, final (counts)
@@ -415,7 +508,7 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     if output_path.exists() and not force:
         logger.info("Merged entities already exist at %s", output_path)
         count = len(read_json(output_path).get("entities", []))
-        return {"entity_type": entity_type, "raw": count, "consolidate": 0, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": count}
+        return {"entity_type": entity_type, "raw": count, "consolidate": 0, "deterministic": 0, "type_voting": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": count}
 
     extractions = _load_extractions(entity_type)
     
@@ -464,24 +557,35 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     merged = _consolidate_overlaps(merged, entity_type)
     count_after_consolidate = len(merged)
     
-    # Filter known ships from all entity types except ships_and_minds
+    # Apply type voting exclusions (removes entities that belong to a more dominant type)
+    type_voting_removed = 0
+    if type_exclusions:
+        before = len(merged)
+        merged = {k: v for k, v in merged.items() if k not in type_exclusions}
+        type_voting_removed = before - len(merged)
+        if type_voting_removed > 0:
+            logger.info("Type voting: removed %d entities from %s (belong to different dominant type)", type_voting_removed, entity_type)
+    
+    # Cross-type filters (skipped in Pass 1 of two-pass architecture)
     deterministic_removed = 0
-    if entity_type in ("characters", "technology", "factions", "locations"):
-        before = len(merged)
-        merged = _filter_known_ships(merged, entity_type)
-        deterministic_removed += before - len(merged)
-    
-    # Filter known characters from non-character entity types (fixes misclassification)
-    if entity_type in ("locations", "factions", "technology", "events"):
-        before = len(merged)
-        merged = _filter_known_characters(merged, entity_type)
-        deterministic_removed += before - len(merged)
-    
-    # Filter known entities from events (characters, ships, locations leak into events)
-    if entity_type == "events":
-        before = len(merged)
-        merged = _filter_entities_from_events(merged)
-        deterministic_removed += before - len(merged)
+    if not skip_filters:
+        # Filter known ships from all entity types except ships_and_minds
+        if entity_type in ("characters", "technology", "factions", "locations"):
+            before = len(merged)
+            merged = _filter_known_ships(merged, entity_type)
+            deterministic_removed += before - len(merged)
+        
+        # Filter known characters from non-character entity types (fixes misclassification)
+        if entity_type in ("locations", "factions", "technology", "events"):
+            before = len(merged)
+            merged = _filter_known_characters(merged, entity_type)
+            deterministic_removed += before - len(merged)
+        
+        # Filter known entities from events (characters, ships, locations leak into events)
+        if entity_type == "events":
+            before = len(merged)
+            merged = _filter_entities_from_events(merged)
+            deterministic_removed += before - len(merged)
     
     # Calculate consolidation removals (alias dedup)
     consolidate_removed = raw_count - count_after_consolidate
@@ -495,8 +599,9 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
         output_path,
     )
     
-    # Run LLM-based semantic deduplication
-    if not skip_dedup:
+    # LLM-based filters (skipped in Pass 1 of two-pass architecture)
+    garbage_removed = dedup_removed = cross_removed = 0
+    if not skip_filters and not skip_dedup:
         try:
             # Import here to avoid circular dependency
             import sys
@@ -527,17 +632,120 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
             final_count = len(load_entities(entity_type))
         except Exception as e:
             logger.warning("LLM deduplication failed for %s: %s", entity_type, e)
-            garbage_removed = dedup_removed = cross_removed = 0
             final_count = len(read_json(output_path).get("entities", []))
+    elif skip_filters:
+        logger.debug("Skipping filters for %s (Pass 1)", entity_type)
+        final_count = len(merged)
     else:
         logger.info("Skipping LLM deduplication for %s (--skip-dedup)", entity_type)
-        garbage_removed = dedup_removed = cross_removed = 0
         final_count = len(read_json(output_path).get("entities", []))
     
     return {
         "entity_type": entity_type,
         "raw": raw_count,
         "consolidate": consolidate_removed,
+        "type_voting": type_voting_removed,
+        "deterministic": deterministic_removed,
+        "garbage": garbage_removed,
+        "dedup": dedup_removed,
+        "cross": cross_removed,
+        "final": final_count,
+    }
+
+
+def apply_entity_filters(entity_type: str, skip_dedup: bool = False, client: GeminiClient = None, book_slug: str = None) -> dict:
+    """
+    Apply cross-type and LLM filters to already-merged entities (Pass 2 of two-pass architecture).
+    
+    Args:
+        entity_type: Type of entities to filter
+        skip_dedup: Skip LLM-based filters
+        client: Optional GeminiClient for LLM filters
+        book_slug: Optional book slug for book-specific files
+    
+    Returns:
+        dict with filter stats
+    """
+    # Determine file path
+    if book_slug:
+        output_path = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+    else:
+        output_path = config.ENTITIES_DIR / f"{entity_type}.json"
+    
+    if not output_path.exists():
+        logger.warning("No merged entities found at %s", output_path)
+        return {"entity_type": entity_type, "deterministic": 0, "garbage": 0, "dedup": 0, "cross": 0, "final": 0}
+    
+    # Load merged entities
+    data = read_json(output_path)
+    merged: Dict[str, MergedEntity] = {}
+    for ent in data.get("entities", []):
+        key = slugify(ent.get("canonical_name", ""))
+        if key:
+            merged[key] = MergedEntity(**ent)
+    
+    initial_count = len(merged)
+    
+    # Apply cross-type filters (now with fresh data from all types)
+    deterministic_removed = 0
+    
+    # Filter known ships from all entity types except ships_and_minds
+    if entity_type in ("characters", "technology", "factions", "locations"):
+        before = len(merged)
+        merged = _filter_known_ships(merged, entity_type)
+        deterministic_removed += before - len(merged)
+    
+    # Filter known characters from non-character entity types
+    if entity_type in ("locations", "factions", "technology", "events"):
+        before = len(merged)
+        merged = _filter_known_characters(merged, entity_type)
+        deterministic_removed += before - len(merged)
+    
+    # Filter known entities from events
+    if entity_type == "events":
+        before = len(merged)
+        merged = _filter_entities_from_events(merged)
+        deterministic_removed += before - len(merged)
+    
+    # Write back filtered entities
+    if deterministic_removed > 0:
+        write_json({"entities": [m.model_dump() for m in merged.values()]}, output_path)
+        logger.info("Cross-type filters removed %d entities from %s", deterministic_removed, entity_type)
+    
+    # Apply LLM filters
+    garbage_removed = dedup_removed = cross_removed = 0
+    if not skip_dedup:
+        try:
+            import sys
+            sys.path.insert(0, str(config.PROJECT_ROOT))
+            from deduplicate_entities import run_deduplication, run_cross_entity_dedup, run_garbage_filter, load_entities
+            
+            if client is None:
+                client = GeminiClient()
+            
+            garbage_removed = run_garbage_filter(entity_type, client)
+            if garbage_removed > 0:
+                logger.info("Garbage filter removed %d non-entities from %s", garbage_removed, entity_type)
+            
+            dedup_removed = run_deduplication(entity_type, client)
+            if dedup_removed > 0:
+                logger.info("LLM deduplication removed %d duplicates from %s", dedup_removed, entity_type)
+            
+            if entity_type in ("characters", "technology", "factions", "locations"):
+                cross_removed = run_cross_entity_dedup(entity_type, client)
+                if cross_removed > 0:
+                    logger.info("Cross-entity dedup removed %d ships from %s", cross_removed, entity_type)
+            
+            final_count = len(load_entities(entity_type))
+        except Exception as e:
+            logger.warning("LLM filters failed for %s: %s", entity_type, e)
+            final_count = len(merged)
+    else:
+        final_count = len(merged)
+    
+    return {
+        "entity_type": entity_type,
+        "initial": initial_count,
         "deterministic": deterministic_removed,
         "garbage": garbage_removed,
         "dedup": dedup_removed,

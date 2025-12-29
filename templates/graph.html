@@ -10,17 +10,52 @@
     </header>
 
     <div class="graph-controls">
-        <div class="graph-filters">
-            <label>Filter by type:</label>
-            <button class="filter-btn active" data-type="all">All</button>
-            <button class="filter-btn" data-type="characters">Characters</button>
-            <button class="filter-btn" data-type="ships_and_minds">Ships & Minds</button>
-            <button class="filter-btn" data-type="locations">Locations</button>
-            <button class="filter-btn" data-type="factions">Factions</button>
+        <!-- Search -->
+        <div class="graph-search">
+            <input type="text" id="graph-search" placeholder="Search entities..." autocomplete="off">
+            <div id="graph-search-results" class="graph-search-results"></div>
         </div>
+
+        <!-- Book Filter -->
+        <div class="graph-filter-group">
+            <label>Book:</label>
+            <select id="book-filter">
+                <option value="all">All Books</option>
+                {% for book in books %}
+                <option value="{{ book }}">{{ book | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Type Filter -->
+        <div class="graph-filter-group">
+            <label>Type:</label>
+            <select id="type-filter">
+                <option value="all">All Types</option>
+                <option value="characters">Characters</option>
+                <option value="ships_and_minds">Ships & Minds</option>
+                <option value="locations">Locations</option>
+                <option value="factions">Factions</option>
+                <option value="technology">Technology</option>
+                <option value="events">Events</option>
+            </select>
+        </div>
+
+        <!-- Prominence Slider -->
+        <div class="graph-filter-group">
+            <label>Min Prominence: <span id="prominence-value">0</span></label>
+            <input type="range" id="prominence-slider" min="0" max="100" value="0">
+        </div>
+
+        <!-- Actions -->
         <div class="graph-actions">
-            <button id="reset-zoom" class="action-btn">Reset View</button>
+            <button id="reset-filters" class="action-btn">Reset All</button>
+            <button id="reset-zoom" class="action-btn">Fit View</button>
         </div>
+    </div>
+
+    <div class="graph-stats">
+        Showing <span id="visible-nodes">0</span> nodes, <span id="visible-edges">0</span> edges
     </div>
 
     <div id="graph-canvas" class="graph-canvas"></div>
@@ -29,7 +64,11 @@
         <button class="node-info-close">×</button>
         <h3 class="node-info-name"></h3>
         <p class="node-info-type"></p>
-        <a class="node-info-link" href="#">View Article →</a>
+        <p class="node-info-books"></p>
+        <div class="node-info-actions">
+            <a class="node-info-link" href="#">View Article →</a>
+            <button id="focus-node" class="action-btn">Show Connections Only</button>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -37,9 +76,16 @@
 {% block scripts %}
 <!-- Cytoscape.js from CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+
+<!-- Graph data embedded directly to avoid CORS issues with file:// -->
+<script id="graph-data" type="application/json">
+{{ graph_json | safe }}
+</script>
 <script>
-    let cy = null;
-    let graphData = null;
+    // Expose variables globally for debugging and event listeners
+    window.cy = null;
+    window.allElements = [];
+    window.currentFocusNode = null;
 
     // Color mapping for entity types
     const typeColors = {
@@ -51,32 +97,45 @@
         events: '#1abc9c'
     };
 
-    async function initGraph() {
+    function initGraph() {
         try {
-            const response = await fetch('{{ root_path }}graph_data.json');
-            if (!response.ok) throw new Error('Failed to load graph data');
-            graphData = await response.json();
+            console.log("Initializing graph...");
+            const dataScript = document.getElementById('graph-data');
+            if (!dataScript) {
+                throw new Error("Graph data script not found");
+            }
+
+            let graphData;
+            try {
+                graphData = JSON.parse(dataScript.textContent);
+            } catch (e) {
+                throw new Error("Failed to parse graph JSON: " + e.message);
+            }
+
+            console.log(`Loaded ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
 
             // Transform data for Cytoscape
-            const elements = [];
+            window.allElements = []; // Reset
 
-            // Add nodes
             graphData.nodes.forEach(node => {
-                elements.push({
+                window.allElements.push({
+                    group: 'nodes',
                     data: {
                         id: node.id,
                         label: node.label,
                         type: node.type,
                         url: node.url,
-                        prominence: node.prominence || 1
+                        prominence: node.prominence || 0,
+                        books: node.books || []
                     }
                 });
             });
 
-            // Add edges
             graphData.edges.forEach(edge => {
-                elements.push({
+                window.allElements.push({
+                    group: 'edges',
                     data: {
+                        id: edge.source + '-' + edge.target,
                         source: edge.source,
                         target: edge.target
                     }
@@ -84,31 +143,37 @@
             });
 
             // Initialize Cytoscape
-            cy = cytoscape({
-                container: document.getElementById('graph-canvas'),
-                elements: elements,
+            const container = document.getElementById('graph-canvas');
+            if (!container) {
+                throw new Error("Graph canvas container not found");
+            }
+
+            window.cy = cytoscape({
+                container: container,
+                elements: window.allElements,
                 style: [
                     {
                         selector: 'node',
                         style: {
                             'label': 'data(label)',
                             'background-color': (ele) => typeColors[ele.data('type')] || '#888',
-                            'width': (ele) => Math.min(20 + (ele.data('prominence') || 1) * 0.5, 60),
-                            'height': (ele) => Math.min(20 + (ele.data('prominence') || 1) * 0.5, 60),
+                            'width': (ele) => Math.min(15 + (ele.data('prominence') || 0) * 0.3, 50),
+                            'height': (ele) => Math.min(15 + (ele.data('prominence') || 0) * 0.3, 50),
                             'font-size': '10px',
                             'color': '#fff',
                             'text-outline-color': '#000',
-                            'text-outline-width': '2px',
+                            'text-outline-width': '1px',
                             'text-valign': 'bottom',
-                            'text-margin-y': '5px'
+                            'text-margin-y': '3px',
+                            'min-zoomed-font-size': 8
                         }
                     },
                     {
                         selector: 'edge',
                         style: {
                             'width': 1,
-                            'line-color': '#555',
-                            'opacity': 0.6,
+                            'line-color': '#444',
+                            'opacity': 0.4,
                             'curve-style': 'bezier'
                         }
                     },
@@ -120,102 +185,316 @@
                         }
                     },
                     {
-                        selector: '.hidden',
+                        selector: '.highlighted',
                         style: {
-                            'display': 'none'
+                            'border-width': 4,
+                            'border-color': '#ffeb3b',
+                            'z-index': 999
+                        }
+                    },
+                    {
+                        selector: '.dimmed',
+                        style: {
+                            'opacity': 0.1,
+                            'label': '' /* Hide labels of dimmed nodes */
                         }
                     }
                 ],
                 layout: {
                     name: 'cose',
-                    idealEdgeLength: 100,
-                    nodeOverlap: 20,
+                    idealEdgeLength: 80,
+                    nodeOverlap: 10,
                     refresh: 20,
                     fit: true,
                     padding: 30,
-                    randomize: false,
-                    componentSpacing: 100,
-                    nodeRepulsion: 400000,
-                    edgeElasticity: 100,
+                    randomize: true,
+                    componentSpacing: 80,
+                    nodeRepulsion: 300000,
+                    edgeElasticity: 80,
                     nestingFactor: 5,
-                    gravity: 80,
-                    numIter: 1000,
+                    gravity: 60,
+                    numIter: 500,
                     coolingFactor: 0.95,
                     minTemp: 1.0
                 }
             });
 
+            // Set default filter to avoid initial clutter
+            document.getElementById('prominence-slider').value = 5;
+            document.getElementById('prominence-value').textContent = "5";
+
+            // Wait for layout to finish before filtering
+            window.cy.ready(() => {
+                console.log("Cytoscape ready, applying initial filters");
+                applyFilters();
+            });
+
             // Node click handler
-            cy.on('tap', 'node', function (evt) {
+            window.cy.on('tap', 'node', function (evt) {
                 const node = evt.target;
                 showNodeInfo(node.data());
             });
 
-            // Background click to hide info
-            cy.on('tap', function (evt) {
-                if (evt.target === cy) {
+            // Background click
+            window.cy.on('tap', function (evt) {
+                if (evt.target === window.cy) {
                     hideNodeInfo();
+                    exitFocusMode();
                 }
             });
 
-            console.log(`Graph initialized with ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
+            console.log("Graph initialized successfully");
 
         } catch (e) {
             console.error('Failed to initialize graph:', e);
-            document.getElementById('graph-canvas').innerHTML =
-                '<p style="text-align:center; padding: 2rem;">Could not load graph data.</p>';
+            const container = document.getElementById('graph-canvas');
+            if (container) {
+                container.innerHTML = `<div style="text-align:center; padding: 2rem; color: #ff6b6b;">
+                    <h3>Could not load graph data</h3>
+                    <p>${e.message}</p>
+                </div>`;
+            }
         }
     }
 
     function showNodeInfo(data) {
         const info = document.getElementById('node-info');
+        if (!info) return;
+
         info.querySelector('.node-info-name').textContent = data.label;
         info.querySelector('.node-info-type').textContent = data.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+        // Format books list
+        const booksElement = info.querySelector('.node-info-books');
+        if (data.books && data.books.length > 0) {
+            // Cap at 3 books to avoid overflow
+            const displayBooks = data.books.slice(0, 3).map(b => b.replace(/_/g, ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()));
+            if (data.books.length > 3) displayBooks.push(`+${data.books.length - 3} more`);
+            booksElement.textContent = 'Appears in: ' + displayBooks.join(', ');
+        } else {
+            booksElement.textContent = 'Appears in: Unknown';
+        }
+
         info.querySelector('.node-info-link').href = data.url;
         info.style.display = 'block';
+
+        // Store for focus mode
+        window.currentFocusNode = data.id;
+
+        // Highlight the node immediately
+        highlightSingleNode(data.id);
+    }
+
+    function highlightSingleNode(nodeId) {
+        if (!window.cy) return;
+
+        window.cy.batch(() => {
+            window.cy.elements().removeClass('highlighted');
+            window.cy.getElementById(nodeId).addClass('highlighted');
+        });
     }
 
     function hideNodeInfo() {
-        document.getElementById('node-info').style.display = 'none';
+        const info = document.getElementById('node-info');
+        if (info) info.style.display = 'none';
     }
 
-    // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+    function applyFilters() {
+        if (!window.cy) return;
 
-            const filterType = btn.dataset.type;
-            if (filterType === 'all') {
-                cy.nodes().removeClass('hidden');
-                cy.edges().removeClass('hidden');
-            } else {
-                cy.nodes().forEach(node => {
-                    if (node.data('type') === filterType) {
-                        node.removeClass('hidden');
-                    } else {
-                        node.addClass('hidden');
+        const bookFilter = document.getElementById('book-filter').value;
+        const typeFilter = document.getElementById('type-filter').value;
+        const minProminence = parseInt(document.getElementById('prominence-slider').value);
+
+        window.cy.batch(() => {
+            // Reset classes
+            window.cy.elements().removeClass('dimmed hidden');
+
+            const nodesToHide = window.cy.nodes().filter(node => {
+                const data = node.data();
+
+                // Book filter
+                if (bookFilter !== 'all') {
+                    const books = data.books || [];
+                    // Simple partial match on book ID
+                    if (!books.some(b => b.toLowerCase().includes(bookFilter.toLowerCase()))) {
+                        return true;
                     }
-                });
-                // Hide edges where either endpoint is hidden
-                cy.edges().forEach(edge => {
-                    if (edge.source().hasClass('hidden') || edge.target().hasClass('hidden')) {
-                        edge.addClass('hidden');
-                    } else {
-                        edge.removeClass('hidden');
-                    }
-                });
-            }
+                }
+
+                // Type filter
+                if (typeFilter !== 'all' && data.type !== typeFilter) {
+                    return true;
+                }
+
+                // Prominence filter
+                if ((data.prominence || 0) < minProminence) {
+                    return true;
+                }
+
+                return false;
+            });
+
+            nodesToHide.addClass('dimmed');
+
+            // Also dim edges connected to dimmed nodes
+            const edgesToDim = window.cy.edges().filter(edge => {
+                return edge.source().hasClass('dimmed') || edge.target().hasClass('dimmed');
+            });
+            edgesToDim.addClass('dimmed');
         });
+
+        updateStats();
+    }
+
+    function updateStats() {
+        if (!window.cy) return;
+        const visibleNodes = window.cy.nodes().not('.dimmed').length;
+        const visibleEdges = window.cy.edges().not('.dimmed').length;
+        document.getElementById('visible-nodes').textContent = visibleNodes;
+        document.getElementById('visible-edges').textContent = visibleEdges;
+    }
+
+    function focusOnNode(nodeId) {
+        if (!window.cy) return;
+        const node = window.cy.getElementById(nodeId);
+        if (!node.length) return;
+
+        window.cy.batch(() => {
+            // Dim everything first
+            window.cy.elements().addClass('dimmed');
+            window.cy.elements().removeClass('highlighted');
+
+            // Show the focused node and its neighbors
+            node.removeClass('dimmed').addClass('highlighted');
+
+            const neighbors = node.neighborhood();
+            neighbors.removeClass('dimmed');
+        });
+
+        // Fit to the neighborhood with padding
+        window.cy.animation({
+            fit: {
+                eles: node.neighborhood().add(node),
+                padding: 50
+            },
+            duration: 500,
+            easing: 'ease-out-cubic'
+        }).play();
+
+        updateStats();
+    }
+
+    function exitFocusMode() {
+        window.currentFocusNode = null;
+        if (window.cy) {
+            window.cy.elements().removeClass('highlighted');
+        }
+        applyFilters();  // Re-apply normal filters
+    }
+
+    // Search functionality
+    const graphSearchInput = document.getElementById('graph-search');
+    const graphSearchResults = document.getElementById('graph-search-results');
+
+    graphSearchInput?.addEventListener('input', () => {
+        const query = graphSearchInput.value.trim().toLowerCase();
+        if (query.length < 2) {
+            graphSearchResults.innerHTML = '';
+            graphSearchResults.style.display = 'none';
+            return;
+        }
+
+        if (!window.cy) return;
+
+        const matches = window.cy.nodes().filter(node => {
+            const label = node.data('label').toLowerCase();
+            return label.includes(query);
+        }).sort((a, b) => {
+            // Sort by prominence
+            return (b.data('prominence') || 0) - (a.data('prominence') || 0);
+        }).slice(0, 10);
+
+        if (matches.length === 0) {
+            graphSearchResults.innerHTML = '<div class="graph-search-item" style="cursor: default">No matches found</div>';
+        } else {
+            graphSearchResults.innerHTML = matches.map(node => {
+                const d = node.data();
+                return `<div class="graph-search-item" data-id="${d.id}">${d.label} <small>(${d.type.replace(/_/g, ' ')} • P:${d.prominence || 0})</small></div>`;
+            }).join('');
+        }
+        graphSearchResults.style.display = 'block';
     });
 
-    // Reset zoom button
+    graphSearchResults?.addEventListener('click', (e) => {
+        const item = e.target.closest('.graph-search-item');
+        if (item && item.dataset.id) {
+            const nodeId = item.dataset.id;
+
+            if (window.cy) {
+                const node = window.cy.getElementById(nodeId);
+                if (node.length) {
+                    // Zoom to node
+                    window.cy.animation({
+                        center: { eles: node },
+                        zoom: 2,
+                        duration: 500,
+                        easing: 'ease-out-cubic'
+                    }).play();
+
+                    // Show info
+                    showNodeInfo(node.data());
+
+                    // If in focus mode, update focus
+                    if (window.currentFocusNode) {
+                        focusOnNode(nodeId);
+                    }
+                }
+            }
+            graphSearchResults.style.display = 'none';
+            graphSearchInput.value = '';
+        }
+    });
+
+    // Event listeners
+    document.getElementById('book-filter')?.addEventListener('change', applyFilters);
+    document.getElementById('type-filter')?.addEventListener('change', applyFilters);
+
+    document.getElementById('prominence-slider')?.addEventListener('input', (e) => {
+        document.getElementById('prominence-value').textContent = e.target.value;
+        applyFilters();
+    });
+
+    document.getElementById('reset-filters')?.addEventListener('click', () => {
+        document.getElementById('book-filter').value = 'all';
+        document.getElementById('type-filter').value = 'all';
+        document.getElementById('prominence-slider').value = 0;
+        document.getElementById('prominence-value').textContent = '0';
+        exitFocusMode();
+
+        if (window.cy) {
+            window.cy.fit();
+        }
+    });
+
     document.getElementById('reset-zoom')?.addEventListener('click', () => {
-        if (cy) cy.fit();
+        if (window.cy) window.cy.fit();
     });
 
-    // Close node info
+    document.getElementById('focus-node')?.addEventListener('click', () => {
+        if (window.currentFocusNode) {
+            focusOnNode(window.currentFocusNode);
+        }
+    });
+
     document.querySelector('.node-info-close')?.addEventListener('click', hideNodeInfo);
+
+    // Close search on outside click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.graph-search')) {
+            graphSearchResults.style.display = 'none';
+        }
+    });
 
     // Initialize on load
     if (document.readyState === 'loading') {

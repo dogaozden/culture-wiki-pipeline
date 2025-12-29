@@ -1200,13 +1200,11 @@ body {
 .entity-link {
     color: var(--color-accent);
     text-decoration: none;
-    border-bottom: 1px dotted var(--color-accent);
     transition: all var(--transition-fast);
 }
 
 .entity-link:hover {
     color: var(--color-accent-hover);
-    border-bottom-style: solid;
 }
 
 
@@ -1221,7 +1219,7 @@ body {
 
 .graph-header {
     text-align: center;
-    margin-bottom: var(--space-xl);
+    margin-bottom: var(--space-lg);
 }
 
 .graph-header h1 {
@@ -1240,50 +1238,105 @@ body {
 
 .graph-controls {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-md);
-    margin-bottom: var(--space-lg);
+    margin-bottom: var(--space-sm);
     padding: var(--space-md);
     background: var(--color-surface);
     border-radius: var(--border-radius);
 }
 
-.graph-filters {
+.graph-search {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 300px;
+}
+
+.graph-search input {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    color: var(--color-text);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    outline: none;
+}
+
+.graph-search input:focus {
+    border-color: var(--color-accent);
+}
+
+.graph-search-results {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 200;
+}
+
+.graph-search-item {
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.graph-search-item:last-child {
+    border-bottom: none;
+}
+
+.graph-search-item:hover {
+    background: var(--color-bg-hover);
+}
+
+.graph-search-item small {
+    color: var(--color-text-tertiary);
+}
+
+.graph-filter-group {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    flex-wrap: wrap;
 }
 
-.graph-filters label {
-    font-family: var(--font-display);
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-}
-
-.filter-btn {
+.graph-filter-group label {
     font-family: var(--font-display);
     font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+
+.graph-filter-group select {
     padding: var(--space-xs) var(--space-sm);
-    background: var(--color-bg-hover);
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    color: var(--color-text);
+    background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
-    color: var(--color-text-secondary);
     cursor: pointer;
-    transition: all var(--transition-fast);
 }
 
-.filter-btn:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+.graph-filter-group input[type="range"] {
+    width: 80px;
+    cursor: pointer;
 }
 
-.filter-btn.active {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: var(--color-bg);
+.graph-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-left: auto;
 }
 
 .action-btn {
@@ -1303,10 +1356,18 @@ body {
     color: var(--color-accent);
 }
 
+.graph-stats {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    color: var(--color-text-tertiary);
+    margin-bottom: var(--space-sm);
+    text-align: center;
+}
+
 .graph-canvas {
     width: 100%;
-    height: 70vh;
-    min-height: 500px;
+    height: 65vh;
+    min-height: 400px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
@@ -1316,7 +1377,7 @@ body {
     position: fixed;
     bottom: var(--space-xl);
     right: var(--space-xl);
-    width: 280px;
+    width: 300px;
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
@@ -1351,8 +1412,20 @@ body {
 .node-info-type {
     font-size: 0.85rem;
     color: var(--color-text-secondary);
-    margin: 0 0 var(--space-md) 0;
+    margin: 0 0 var(--space-xs) 0;
     text-transform: capitalize;
+}
+
+.node-info-books {
+    font-size: 0.8rem;
+    color: var(--color-text-tertiary);
+    margin: 0 0 var(--space-md) 0;
+}
+
+.node-info-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
 }
 
 .node-info-link {
@@ -1365,4 +1438,9 @@ body {
 
 .node-info-link:hover {
     text-decoration: underline;
+}
+
+.node-info-actions .action-btn {
+    width: 100%;
+    text-align: center;
 }
