@@ -28,7 +28,8 @@
     </header>
 
     {% if article.summary %}
-    <p class="article-summary">{{ article.summary | citations(citation_map) }}</p>
+    <p class="article-summary">{{ article.summary | citations(citation_map) | autolink(root_path, article.entity_name)
+        }}</p>
     {% endif %}
 
     {% if article.sections %}
@@ -45,7 +46,7 @@
     <section id="section-{{ loop.index }}" class="article-section">
         <h2>{{ section.title }}</h2>
         <div class="section-content">
-            {{ section.content | citations(citation_map) }}
+            {{ section.content | citations(citation_map) | autolink(root_path, article.entity_name) }}
         </div>
     </section>
     {% endfor %}

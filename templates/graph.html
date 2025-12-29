@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Entity Relationship Graph{% endblock %}
+
+{% block content %}
+<div class="graph-container">
+    <header class="graph-header">
+        <h1>Entity Relationship Graph</h1>
+        <p class="graph-subtitle">Explore connections between characters, ships, locations, and more</p>
+    </header>
+
+    <div class="graph-controls">
+        <div class="graph-filters">
+            <label>Filter by type:</label>
+            <button class="filter-btn active" data-type="all">All</button>
+            <button class="filter-btn" data-type="characters">Characters</button>
+            <button class="filter-btn" data-type="ships_and_minds">Ships & Minds</button>
+            <button class="filter-btn" data-type="locations">Locations</button>
+            <button class="filter-btn" data-type="factions">Factions</button>
+        </div>
+        <div class="graph-actions">
+            <button id="reset-zoom" class="action-btn">Reset View</button>
+        </div>
+    </div>
+
+    <div id="graph-canvas" class="graph-canvas"></div>
+
+    <div id="node-info" class="node-info" style="display: none;">
+        <button class="node-info-close">×</button>
+        <h3 class="node-info-name"></h3>
+        <p class="node-info-type"></p>
+        <a class="node-info-link" href="#">View Article →</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Cytoscape.js from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<script>
+    let cy = null;
+    let graphData = null;
+
+    // Color mapping for entity types
+    const typeColors = {
+        characters: '#e74c3c',
+        ships_and_minds: '#3498db',
+        locations: '#2ecc71',
+        technology: '#9b59b6',
+        factions: '#f39c12',
+        events: '#1abc9c'
+    };
+
+    async function initGraph() {
+        try {
+            const response = await fetch('{{ root_path }}graph_data.json');
+            if (!response.ok) throw new Error('Failed to load graph data');
+            graphData = await response.json();
+
+            // Transform data for Cytoscape
+            const elements = [];
+
+            // Add nodes
+            graphData.nodes.forEach(node => {
+                elements.push({
+                    data: {
+                        id: node.id,
+                        label: node.label,
+                        type: node.type,
+                        url: node.url,
+                        prominence: node.prominence || 1
+                    }
+                });
+            });
+
+            // Add edges
+            graphData.edges.forEach(edge => {
+                elements.push({
+                    data: {
+                        source: edge.source,
+                        target: edge.target
+                    }
+                });
+            });
+
+            // Initialize Cytoscape
+            cy = cytoscape({
+                container: document.getElementById('graph-canvas'),
+                elements: elements,
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'label': 'data(label)',
+                            'background-color': (ele) => typeColors[ele.data('type')] || '#888',
+                            'width': (ele) => Math.min(20 + (ele.data('prominence') || 1) * 0.5, 60),
+                            'height': (ele) => Math.min(20 + (ele.data('prominence') || 1) * 0.5, 60),
+                            'font-size': '10px',
+                            'color': '#fff',
+                            'text-outline-color': '#000',
+                            'text-outline-width': '2px',
+                            'text-valign': 'bottom',
+                            'text-margin-y': '5px'
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 1,
+                            'line-color': '#555',
+                            'opacity': 0.6,
+                            'curve-style': 'bezier'
+                        }
+                    },
+                    {
+                        selector: 'node:selected',
+                        style: {
+                            'border-width': 3,
+                            'border-color': '#fff'
+                        }
+                    },
+                    {
+                        selector: '.hidden',
+                        style: {
+                            'display': 'none'
+                        }
+                    }
+                ],
+                layout: {
+                    name: 'cose',
+                    idealEdgeLength: 100,
+                    nodeOverlap: 20,
+                    refresh: 20,
+                    fit: true,
+                    padding: 30,
+                    randomize: false,
+                    componentSpacing: 100,
+                    nodeRepulsion: 400000,
+                    edgeElasticity: 100,
+                    nestingFactor: 5,
+                    gravity: 80,
+                    numIter: 1000,
+                    coolingFactor: 0.95,
+                    minTemp: 1.0
+                }
+            });
+
+            // Node click handler
+            cy.on('tap', 'node', function (evt) {
+                const node = evt.target;
+                showNodeInfo(node.data());
+            });
+
+            // Background click to hide info
+            cy.on('tap', function (evt) {
+                if (evt.target === cy) {
+                    hideNodeInfo();
+                }
+            });
+
+            console.log(`Graph initialized with ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
+
+        } catch (e) {
+            console.error('Failed to initialize graph:', e);
+            document.getElementById('graph-canvas').innerHTML =
+                '<p style="text-align:center; padding: 2rem;">Could not load graph data.</p>';
+        }
+    }
+
+    function showNodeInfo(data) {
+        const info = document.getElementById('node-info');
+        info.querySelector('.node-info-name').textContent = data.label;
+        info.querySelector('.node-info-type').textContent = data.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        info.querySelector('.node-info-link').href = data.url;
+        info.style.display = 'block';
+    }
+
+    function hideNodeInfo() {
+        document.getElementById('node-info').style.display = 'none';
+    }
+
+    // Filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const filterType = btn.dataset.type;
+            if (filterType === 'all') {
+                cy.nodes().removeClass('hidden');
+                cy.edges().removeClass('hidden');
+            } else {
+                cy.nodes().forEach(node => {
+                    if (node.data('type') === filterType) {
+                        node.removeClass('hidden');
+                    } else {
+                        node.addClass('hidden');
+                    }
+                });
+                // Hide edges where either endpoint is hidden
+                cy.edges().forEach(edge => {
+                    if (edge.source().hasClass('hidden') || edge.target().hasClass('hidden')) {
+                        edge.addClass('hidden');
+                    } else {
+                        edge.removeClass('hidden');
+                    }
+                });
+            }
+        });
+    });
+
+    // Reset zoom button
+    document.getElementById('reset-zoom')?.addEventListener('click', () => {
+        if (cy) cy.fit();
+    });
+
+    // Close node info
+    document.querySelector('.node-info-close')?.addEventListener('click', hideNodeInfo);
+
+    // Initialize on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initGraph);
+    } else {
+        initGraph();
+    }
+</script>
+{% endblock %}

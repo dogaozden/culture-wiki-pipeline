@@ -242,6 +242,58 @@ def _filter_known_ships(merged: Dict[str, MergedEntity], entity_type: str) -> Di
     return filtered
 
 
+def _load_known_character_names() -> set[str]:
+    """Load all character names from characters for cross-reference filtering."""
+    char_file = config.ENTITIES_DIR / "characters.json"
+    if not char_file.exists():
+        return set()
+    
+    data = read_json(char_file)
+    char_names: set[str] = set()
+    for ent in data.get("entities", []):
+        name = ent.get("canonical_name", "")
+        # Only add substantial names (skip generic ones)
+        if len(name) > 2:
+            char_names.add(slugify(name))
+        for alias in ent.get("aliases", []):
+            if len(alias) > 2:
+                char_names.add(slugify(alias))
+    return char_names
+
+
+def _filter_known_characters(merged: Dict[str, MergedEntity], entity_type: str) -> Dict[str, MergedEntity]:
+    """Remove entities that match known character names from non-character entity types."""
+    known_char_slugs = _load_known_character_names()
+    if not known_char_slugs:
+        return merged
+    
+    filtered = {}
+    removed_count = 0
+    for key, entity in merged.items():
+        name = entity.canonical_name.strip()
+        slug = slugify(name)
+        
+        # Check if canonical name exactly matches a known character
+        if slug in known_char_slugs:
+            logger.debug("Filtering known character from %s: %s", entity_type, name)
+            removed_count += 1
+            continue
+        
+        # Strip "The " prefix and check again
+        if name.lower().startswith("the "):
+            slug_no_the = slugify(name[4:])
+            if slug_no_the in known_char_slugs:
+                logger.debug("Filtering character (stripped 'The') from %s: %s", entity_type, name)
+                removed_count += 1
+                continue
+        
+        filtered[key] = entity
+    
+    if removed_count > 0:
+        logger.info("Filtered %d known characters from %s", removed_count, entity_type)
+    return filtered
+
+
 def _filter_entities_from_events(merged: Dict[str, MergedEntity]) -> Dict[str, MergedEntity]:
     """Remove character/ship/location names that leaked into events during extraction."""
     # Load known entities from other types to check against
@@ -417,6 +469,12 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     if entity_type in ("characters", "technology", "factions", "locations"):
         before = len(merged)
         merged = _filter_known_ships(merged, entity_type)
+        deterministic_removed += before - len(merged)
+    
+    # Filter known characters from non-character entity types (fixes misclassification)
+    if entity_type in ("locations", "factions", "technology", "events"):
+        before = len(merged)
+        merged = _filter_known_characters(merged, entity_type)
         deterministic_removed += before - len(merged)
     
     # Filter known entities from events (characters, ships, locations leak into events)

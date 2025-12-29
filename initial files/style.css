@@ -45,9 +45,9 @@
     --color-text-secondary: #9898a8;
     --color-text-tertiary: #5f5f70;
 
-    --color-accent: #7aa2f7;
-    --color-accent-hover: #89b4fa;
-    --color-accent-subtle: rgba(122, 162, 247, 0.15);
+    --color-accent: #4f81bd;
+    --color-accent-hover: #6a9ad1;
+    --color-accent-subtle: rgba(79, 129, 189, 0.15);
 
     --color-citation: #bb9af7;
     --color-citation-hover: #cba6ff;
@@ -74,9 +74,9 @@
     --color-text-secondary: #5a5a70;
     --color-text-tertiary: #8a8a9a;
 
-    --color-accent: #4a6fa5;
-    --color-accent-hover: #3a5f95;
-    --color-accent-subtle: rgba(74, 111, 165, 0.1);
+    --color-accent: #4f81bd;
+    --color-accent-hover: #3a6a9e;
+    --color-accent-subtle: rgba(79, 129, 189, 0.1);
 
     --color-citation: #7c3aed;
     --color-citation-hover: #6d28d9;
@@ -1119,4 +1119,250 @@ body {
         background: none;
         border: 1px solid #000;
     }
+}
+
+
+/* --------------------------------------------------------------------------
+   Search Results
+   -------------------------------------------------------------------------- */
+
+.sidebar-search {
+    position: relative;
+}
+
+.search-results {
+    position: absolute;
+    top: 100%;
+    left: var(--space-lg);
+    right: var(--space-lg);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+}
+
+.search-results.active {
+    display: block;
+}
+
+.search-result-item {
+    display: block;
+    padding: var(--space-sm) var(--space-md);
+    text-decoration: none;
+    border-bottom: 1px solid var(--color-border-subtle);
+    transition: background var(--transition-fast);
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover {
+    background: var(--color-bg-hover);
+}
+
+.search-result-name {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--color-text);
+}
+
+.search-result-meta {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: 2px;
+}
+
+.search-result-type {
+    font-size: 0.75rem;
+    color: var(--color-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.search-no-results {
+    padding: var(--space-md);
+    font-size: 0.9rem;
+    color: var(--color-text-tertiary);
+    text-align: center;
+}
+
+
+/* --------------------------------------------------------------------------
+   Entity Auto-Links
+   -------------------------------------------------------------------------- */
+
+.entity-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--color-accent);
+    transition: all var(--transition-fast);
+}
+
+.entity-link:hover {
+    color: var(--color-accent-hover);
+    border-bottom-style: solid;
+}
+
+
+/* --------------------------------------------------------------------------
+   Relationship Graph Page
+   -------------------------------------------------------------------------- */
+
+.graph-container {
+    max-width: 100%;
+    padding: var(--space-lg);
+}
+
+.graph-header {
+    text-align: center;
+    margin-bottom: var(--space-xl);
+}
+
+.graph-header h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-sm) 0;
+}
+
+.graph-subtitle {
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
+.graph-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+    padding: var(--space-md);
+    background: var(--color-surface);
+    border-radius: var(--border-radius);
+}
+
+.graph-filters {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.graph-filters label {
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
+.filter-btn {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--color-bg-hover);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.filter-btn:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.filter-btn.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-bg);
+}
+
+.action-btn {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    padding: var(--space-xs) var(--space-md);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.graph-canvas {
+    width: 100%;
+    height: 70vh;
+    min-height: 500px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+}
+
+.node-info {
+    position: fixed;
+    bottom: var(--space-xl);
+    right: var(--space-xl);
+    width: 280px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-lg);
+    z-index: 100;
+}
+
+.node-info-close {
+    position: absolute;
+    top: var(--space-sm);
+    right: var(--space-sm);
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+}
+
+.node-info-close:hover {
+    color: var(--color-text);
+}
+
+.node-info-name {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--space-xs) 0;
+}
+
+.node-info-type {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--space-md) 0;
+    text-transform: capitalize;
+}
+
+.node-info-link {
+    display: inline-block;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    color: var(--color-accent);
+    text-decoration: none;
+}
+
+.node-info-link:hover {
+    text-decoration: underline;
 }

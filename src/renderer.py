@@ -7,7 +7,7 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 
 import markdown
 
@@ -29,6 +29,64 @@ LEGACY_CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 # Built during render_all() and used for cross-entity linking
 _ENTITY_LOOKUP: Dict[str, tuple] = {}
 
+# Compiled regex for autolink (built from entity names during render_all)
+_AUTOLINK_PATTERN: Optional[re.Pattern] = None
+# Map from lowercase entity name -> (display_name, entity_type, slug)
+_AUTOLINK_MAP: Dict[str, tuple] = {}
+
+
+def _autolink_entities(text: str, root_path: str = "", current_entity: str = "") -> Markup:
+    """
+    Convert entity name mentions in text to hyperlinks.
+    
+    - Uses the pre-built _AUTOLINK_PATTERN regex to find matches
+    - Only links the first occurrence of each entity per text block
+    - Avoids linking the current entity (self-references)
+    - Preserves existing HTML tags and citations
+    """
+    if not text or _AUTOLINK_PATTERN is None:
+        return Markup(text) if text else Markup("")
+    
+    # Track which entities we've already linked (only link first occurrence)
+    linked_entities: Set[str] = set()
+    current_entity_lower = current_entity.lower().strip() if current_entity else ""
+    
+    def replacer(match: re.Match) -> str:
+        matched_text = match.group(0)
+        matched_lower = matched_text.lower()
+        
+        # Skip if already linked or is the current entity
+        if matched_lower in linked_entities:
+            return matched_text
+        
+        # Look up the entity
+        if matched_lower not in _AUTOLINK_MAP:
+            return matched_text
+        
+        display_name, entity_type, entity_slug = _AUTOLINK_MAP[matched_lower]
+        
+        # Skip self-references
+        if entity_slug == slugify(current_entity_lower):
+            return matched_text
+        
+        linked_entities.add(matched_lower)
+        href = f"{root_path}{entity_type}/{entity_slug}.html"
+        return f'<a href="{href}" class="entity-link">{matched_text}</a>'
+    
+    # Apply the pattern, but avoid matching inside existing HTML tags
+    # Split by HTML tags, process only text parts
+    parts = re.split(r'(<[^>]+>)', text)
+    result_parts = []
+    for part in parts:
+        if part.startswith('<'):
+            # This is an HTML tag, don't process
+            result_parts.append(part)
+        else:
+            # This is text content, apply autolink
+            result_parts.append(_AUTOLINK_PATTERN.sub(replacer, part))
+    
+    return Markup(''.join(result_parts))
+
 
 def _env() -> Environment:
     env = Environment(
@@ -40,6 +98,7 @@ def _env() -> Environment:
     env.filters["citations"] = _link_citations
     env.filters["slugify"] = slugify
     env.filters["entity_link"] = _entity_link_filter
+    env.filters["autolink"] = _autolink_entities
     return env
 
 
@@ -76,13 +135,17 @@ def _root_path_for(output_path: Path) -> str:
 def _copy_assets() -> None:
     css_src = config.PROJECT_ROOT / "initial files" / "style.css"
     js_src = config.PROJECT_ROOT / "initial files" / "citations.js"
+    search_js_src = config.PROJECT_ROOT / "initial files" / "search.js"
     css_dest = ensure_dir(config.WIKI_DIR / "css") / "style.css"
     js_dest = ensure_dir(config.WIKI_DIR / "js") / "citations.js"
+    search_js_dest = ensure_dir(config.WIKI_DIR / "js") / "search.js"
 
     if css_src.exists():
         shutil.copy2(css_src, css_dest)
     if js_src.exists():
         shutil.copy2(js_src, js_dest)
+    if search_js_src.exists():
+        shutil.copy2(search_js_src, search_js_dest)
 
 
 def _move_citations_after_punctuation(text: str) -> str:
@@ -468,13 +531,14 @@ def render_apocrypha() -> None:
 
 
 def render_all() -> None:
-    global _ENTITY_LOOKUP
+    global _ENTITY_LOOKUP, _AUTOLINK_PATTERN, _AUTOLINK_MAP
     _copy_assets()
     
     # First pass: Load all articles and build the global entity lookup
     # This must happen BEFORE rendering so cross-entity links can be resolved
     type_map: Dict[str, List[Article]] = {}
     _ENTITY_LOOKUP = {}  # Reset lookup
+    _AUTOLINK_MAP = {}  # Reset autolink map
     
     for entity_type in config.ENTITY_TYPES:
         articles = _load_articles(entity_type)
@@ -486,16 +550,37 @@ def render_all() -> None:
             _ENTITY_LOOKUP[article.slug] = (entity_type, article.slug)
             # Map by entity name (lowercase)
             _ENTITY_LOOKUP[article.entity_name.lower().strip()] = (entity_type, article.slug)
+            
+            # Build autolink map (canonical name)
+            name_lower = article.entity_name.lower().strip()
+            if len(name_lower) > 2:  # Skip very short names to avoid over-linking
+                _AUTOLINK_MAP[name_lower] = (article.entity_name, entity_type, article.slug)
+            
             # Map by aliases
             for alias in article.aliases:
                 if alias:
                     alias_slug = slugify(alias)
+                    alias_lower = alias.lower().strip()
                     if alias_slug not in _ENTITY_LOOKUP:
                         _ENTITY_LOOKUP[alias_slug] = (entity_type, article.slug)
-                    if alias.lower().strip() not in _ENTITY_LOOKUP:
-                        _ENTITY_LOOKUP[alias.lower().strip()] = (entity_type, article.slug)
+                    if alias_lower not in _ENTITY_LOOKUP:
+                        _ENTITY_LOOKUP[alias_lower] = (entity_type, article.slug)
+                    # Add to autolink map (skip short aliases)
+                    if len(alias_lower) > 2 and alias_lower not in _AUTOLINK_MAP:
+                        _AUTOLINK_MAP[alias_lower] = (alias, entity_type, article.slug)
     
     logger.info("Built entity lookup with %d entries for cross-linking", len(_ENTITY_LOOKUP))
+    
+    # Build autolink regex pattern from all entity names
+    if _AUTOLINK_MAP:
+        # Sort by length (longest first) to match longer names before shorter ones
+        sorted_names = sorted(_AUTOLINK_MAP.keys(), key=len, reverse=True)
+        # Escape special regex characters and join with |
+        pattern_str = '|'.join(re.escape(name) for name in sorted_names)
+        _AUTOLINK_PATTERN = re.compile(f'\\b({pattern_str})\\b', re.IGNORECASE)
+        logger.info("Built autolink pattern with %d entity names", len(sorted_names))
+    else:
+        _AUTOLINK_PATTERN = None
     
     # Second pass: Render all articles (now with working cross-entity links)
     for entity_type in config.ENTITY_TYPES:
@@ -523,4 +608,96 @@ def render_all() -> None:
     
     # Render Apocrypha (direct markdown -> HTML, bypasses entity pipeline)
     render_apocrypha()
+    
+    # Generate search index
+    _generate_search_index(type_map)
+    
+    # Generate graph data
+    _generate_graph_data(type_map)
+    
+    # Render graph page
+    _render_graph_page()
+
+
+def _generate_search_index(type_map: Dict[str, List[Article]]) -> None:
+    """Generate a JSON search index for client-side search."""
+    search_entries = []
+    
+    for entity_type, articles in type_map.items():
+        for article in articles:
+            entry = {
+                "name": article.entity_name,
+                "aliases": article.aliases[:5] if article.aliases else [],  # Limit aliases
+                "type": entity_type,
+                "url": f"{entity_type}/{article.slug}.html",
+                "summary": (article.summary[:150] + "...") if article.summary and len(article.summary) > 150 else (article.summary or ""),
+            }
+            search_entries.append(entry)
+    
+    output_path = config.WIKI_DIR / "search_index.json"
+    output_path.write_text(json.dumps(search_entries, ensure_ascii=False, indent=None), encoding="utf-8")
+    logger.info("Generated search index with %d entries", len(search_entries))
+
+
+def _generate_graph_data(type_map: Dict[str, List[Article]]) -> None:
+    """Generate a JSON file with nodes and edges for the relationship graph."""
+    nodes = []
+    edges = []
+    node_ids: Set[str] = set()
+    
+    for entity_type, articles in type_map.items():
+        for article in articles:
+            node_id = f"{entity_type}:{article.slug}"
+            node_ids.add(node_id)
+            nodes.append({
+                "id": node_id,
+                "label": article.entity_name,
+                "type": entity_type,
+                "url": f"{entity_type}/{article.slug}.html",
+                "prominence": article.prominence_score,
+            })
+    
+    # Build edges from related_entities
+    for entity_type, articles in type_map.items():
+        for article in articles:
+            source_id = f"{entity_type}:{article.slug}"
+            for related in article.related_entities:
+                if not related:
+                    continue
+                # Find the target entity
+                related_lower = related.lower().strip()
+                related_slug = slugify(related)
+                target_info = _ENTITY_LOOKUP.get(related_slug) or _ENTITY_LOOKUP.get(related_lower)
+                if target_info:
+                    target_type, target_slug = target_info
+                    target_id = f"{target_type}:{target_slug}"
+                    if target_id in node_ids and source_id != target_id:
+                        edges.append({
+                            "source": source_id,
+                            "target": target_id,
+                        })
+    
+    graph_data = {"nodes": nodes, "edges": edges}
+    output_path = config.WIKI_DIR / "graph_data.json"
+    output_path.write_text(json.dumps(graph_data, ensure_ascii=False), encoding="utf-8")
+    logger.info("Generated graph data with %d nodes and %d edges", len(nodes), len(edges))
+
+
+def _render_graph_page() -> None:
+    """Render the interactive relationship graph page."""
+    env = _env()
+    try:
+        template = env.get_template("graph.html")
+    except Exception:
+        logger.warning("graph.html template not found, skipping graph page")
+        return
+    
+    out_path = config.WIKI_DIR / "graph.html"
+    html = template.render(
+        title="Entity Relationship Graph",
+        root_path="",
+    )
+    out_path.write_text(html, encoding="utf-8")
+    logger.info("Rendered graph page")
+
 
