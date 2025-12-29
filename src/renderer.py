@@ -148,6 +148,40 @@ def _copy_assets() -> None:
         shutil.copy2(search_js_src, search_js_dest)
 
 
+def _copy_crown_jewels() -> None:
+    """Copy manually-crafted articles from crown_jewels/ to data/articles/.
+    
+    These are hand-written articles that should override LLM-generated versions.
+    Each JSON file must have an 'entity_type' field to determine destination.
+    """
+    crown_jewels_dir = config.PROJECT_ROOT / "crown_jewels"
+    if not crown_jewels_dir.exists():
+        return
+    
+    copied = 0
+    for json_file in crown_jewels_dir.glob("*.json"):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            entity_type = data.get("entity_type")
+            if not entity_type:
+                logger.warning(f"Crown jewel {json_file.name} missing entity_type, skipping")
+                continue
+            
+            # Copy to the correct entity type folder
+            dest_dir = ensure_dir(config.ARTICLES_DIR / entity_type)
+            dest_file = dest_dir / json_file.name
+            shutil.copy2(json_file, dest_file)
+            copied += 1
+            logger.info(f"Copied crown jewel: {json_file.name} -> {entity_type}/")
+        except Exception as e:
+            logger.warning(f"Failed to copy crown jewel {json_file.name}: {e}")
+    
+    if copied:
+        logger.info(f"Copied {copied} crown jewel articles")
+
+
 def _move_citations_after_punctuation(text: str) -> str:
     """Move citation markers from before punctuation to after.
     
@@ -533,6 +567,7 @@ def render_apocrypha() -> None:
 def render_all() -> None:
     global _ENTITY_LOOKUP, _AUTOLINK_PATTERN, _AUTOLINK_MAP
     _copy_assets()
+    _copy_crown_jewels()  # Copy manually-crafted articles before loading
     
     # First pass: Load all articles and build the global entity lookup
     # This must happen BEFORE rendering so cross-entity links can be resolved

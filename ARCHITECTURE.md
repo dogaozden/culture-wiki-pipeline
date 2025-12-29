@@ -150,8 +150,24 @@ Combine all chapter extractions into unified entity lists.
    - **Default model: gemini-3-flash-preview** for better accuracy
 
 > 🏗️ **Two-Pass Architecture**
-> 1. **Pass 1 (Voting):** Scans all extractions to build the type voting map and performs initial deterministic merge.
-> 2. **Pass 2 (Filtering):** Applies Cross-type filters (using data from all types) and LLM filters.
+> 
+> **Why two passes?** Cross-type filters (e.g., "remove ships from characters") need data from ALL entity types. If we filter while merging, some types don't exist yet.
+> 
+> **Pass 1: Merge All Types**
+> 1. Load extractions for this entity type
+> 2. Consolidate by name/alias matching
+> 3. Apply **Type Voting** (`build_type_voting_map()` + `get_type_exclusions()`)
+>    - Counts how often each entity appears in each type across ALL extractions
+>    - Excludes entities where this type is NOT dominant
+>    - Example: "Veppers" appears 50× as character, 3× as ship → removed from ships
+> 4. Write preliminary JSON
+>
+> **Pass 2: Apply Filters** (calls `apply_entity_filters()`)
+> 1. Load merged entities from Pass 1
+> 2. Apply **Deterministic Cross-Type Filters** (now with fresh data from all types!)
+>    - `_filter_known_ships()`: Remove ship names from non-ship types
+>    - `_filter_known_characters()`: Remove character names from non-character types
+> 3. Apply **LLM Filters** (Garbage → Semantic Dedup → Cross-Entity)
 
 > ✅ **Fixed: Canonical Name Selection**
 > Previously picked the longest name, causing "Quietly Confident" to be canonical instead of "Sleeper Service".
