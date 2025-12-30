@@ -214,21 +214,48 @@ def _strip_class_prefix(name: str) -> str:
         if name.upper().startswith('THE ' + prefix.upper() + ' '):
             return name[len('THE ') + len(prefix):].strip()
     return name
+# Generic aliases that are too vague to use for matching - these cause false merges
+# e.g., both Dajeil and Ulver might be referred to as "girl" or "woman"
+GENERIC_ALIASES = frozenset([
+    "girl", "woman", "man", "boy", "child", "person", "someone", "everyone",
+    "he", "she", "they", "it", "one", "other", "another",
+    "character", "figure", "individual", "creature", "being", "entity",
+    "speaker", "voice", "narrator", "pilot", "captain", "officer",
+    "human", "human being", "humanoid", "alien", "avatar",
+    "the woman", "the man", "the girl", "the boy", "a woman", "a man",
+    "ms", "mr", "dr", "miss",
+])
 
 
 def _name_keys(entity: MergedEntity) -> set[str]:
-    """Generate all matching keys for an entity (including stripped prefixes)."""
-    keys = {slugify(entity.canonical_name)}
-    keys.update(slugify(alias) for alias in entity.aliases)
+    """Generate all matching keys for an entity (including stripped prefixes).
     
-    # Also add stripped versions
+    Excludes generic aliases that are too vague to reliably match entities.
+    """
+    def is_generic(name: str) -> bool:
+        """Check if a name is too generic to use for matching."""
+        slug = slugify(name)
+        return slug in GENERIC_ALIASES or name.lower().strip() in GENERIC_ALIASES
+    
+    keys = set()
+    
+    # Add canonical name (unless generic)
+    if not is_generic(entity.canonical_name):
+        keys.add(slugify(entity.canonical_name))
+    
+    # Add aliases (excluding generic ones)
+    for alias in entity.aliases:
+        if not is_generic(alias):
+            keys.add(slugify(alias))
+    
+    # Also add stripped versions (for ship class prefixes)
     stripped_canonical = _strip_class_prefix(entity.canonical_name)
-    if stripped_canonical != entity.canonical_name:
+    if stripped_canonical != entity.canonical_name and not is_generic(stripped_canonical):
         keys.add(slugify(stripped_canonical))
     
     for alias in entity.aliases:
         stripped = _strip_class_prefix(alias)
-        if stripped != alias:
+        if stripped != alias and not is_generic(stripped):
             keys.add(slugify(stripped))
     
     return {k for k in keys if k}

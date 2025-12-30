@@ -126,11 +126,43 @@ class Pipeline:
             # User explicitly chose a model via --model, respect that
             merge_model = config.GEMINI_MODEL
         
-        # Resolve book slug if specified
-        book_slug = None
+        # ================================================================
+        # BOOK-ISOLATED ARCHITECTURE: Process each book independently
+        # ================================================================
         if book:
-            book_slug = slugify(book)
-            logger.info("Filtering merge to book: %s", book_slug)
+            # Single book specified
+            books_to_process = [book]
+        else:
+            # No book specified: iterate through ALL books independently
+            # This prevents cross-book entity conflation (e.g., Dajeil + Lededje)
+            books_to_process = self._discover_books()
+            logger.info("Book-isolated merge: processing %d books independently", len(books_to_process))
+        
+        for book_name in books_to_process:
+            book_slug = slugify(book_name)
+            logger.info("")
+            logger.info("=" * 80)
+            logger.info("MERGING BOOK: %s", book_name)
+            logger.info("=" * 80)
+            
+            self._merge_single_book(
+                book_slug=book_slug,
+                entity_type=entity_type,
+                force=force,
+                skip_dedup=skip_dedup,
+                merge_model=merge_model,
+            )
+    
+    def _merge_single_book(self, book_slug: str, entity_type: Optional[str], force: bool, skip_dedup: bool, merge_model: str) -> None:
+        """Merge entities for a single book in isolation."""
+        from .merger import merge_entities, apply_entity_filters, build_type_voting_map, get_type_exclusions
+        from .gemini_client import GeminiClient
+        from .validator import verify_book_extractions
+        
+        # New automated validation step: verify aliases exist in source text
+        # This catches LLM hallucinations (e.g. "Ms Gelian" on Ulver Seich)
+        logger.info("Verifying extractions for %s...", book_slug)
+        verify_book_extractions(book_slug=book_slug, verbose=False)
         
         client = None
         if not skip_dedup:
@@ -138,10 +170,9 @@ class Pipeline:
             client.preflight()
             logger.info("Using model %s for merge", merge_model)
         
-        # Build type voting map ONCE before merging (scans all extractions)
-        logger.info("Building type voting map (scanning all extractions)...")
+        # Build type voting map for THIS BOOK ONLY
+        logger.info("Building type voting map for %s...", book_slug)
         voting_map = build_type_voting_map(book_slug=book_slug)
-        logger.info("Type voting map: %d unique entity names found", len(voting_map))
         
         types = [entity_type] if entity_type else config.ENTITY_TYPES
         
@@ -238,19 +269,33 @@ class Pipeline:
             # User explicitly chose a model via --model, respect that
             synthesis_model = config.GEMINI_MODEL
         
-        # Resolve book slug if specified
-        book_slug = None
+        # ================================================================
+        # BOOK-ISOLATED ARCHITECTURE: Process each book independently
+        # ================================================================
         if book:
-            book_slug = slugify(book)
-            logger.info("Filtering synthesis to book: %s", book_slug)
+            # Single book specified
+            books_to_process = [book]
+        else:
+            # No book specified: iterate through ALL books independently
+            books_to_process = self._discover_books()
+            logger.info("Book-isolated synthesis: processing %d books independently", len(books_to_process))
         
         client = GeminiClient(model_name=synthesis_model)
         client.preflight()
         logger.info("Using model %s for synthesis", synthesis_model)
+        
         types = [entity_type] if entity_type else config.ENTITY_TYPES
-        for idx, et in enumerate(types, 1):
-            logger.info("=== Synthesizing %d/%d: %s ===", idx, len(types), et)
-            synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug)
+        
+        for book_name in books_to_process:
+            book_slug = slugify(book_name)
+            logger.info("")
+            logger.info("=" * 80)
+            logger.info("SYNTHESIZING BOOK: %s", book_name)
+            logger.info("=" * 80)
+            
+            for idx, et in enumerate(types, 1):
+                logger.info("=== Synthesizing %d/%d: %s ===", idx, len(types), et)
+                synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug)
 
     def render(self) -> None:
         from .renderer import render_all

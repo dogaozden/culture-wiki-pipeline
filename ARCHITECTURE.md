@@ -138,7 +138,14 @@ Combine all chapter extractions into unified entity lists.
    - Action: Removes "Veppers" from `ships` because `characters` is the dominant type.
    - Prevents cross-contamination (e.g. ship names appearing as locations).
 
-4. **LLM Garbage Filter (NEW Dec 2025)**
+   - Prevents cross-contamination (e.g. ship names appearing as locations).
+
+4. **Automated Alias Verification (NEW)**
+   - Before merging, validates all aliases against source text.
+   - Rejects hallucinated aliases (e.g. "Ms Gelian" for Ulver Seich) that don't appear verbatim.
+   - Prevents false merges caused by shared hallucinated aliases.
+
+5. **LLM Garbage Filter (NEW Dec 2025)**
    - Removes generic descriptors: "the woman", "Admiral", "Speaker 1"
    - Runs before within-entity dedup
    - Uses 3 Flash by default (much more conservative than 2.5 Flash Lite)
@@ -174,7 +181,9 @@ Combine all chapter extractions into unified entity lists.
 > Now uses chapter frequency — names appearing in more chapters win.
 
 **Output:**  
-`data/entities/{type}.json` — One file per entity type with all merged entities
+**Output:**  
+`data/entities/{type}_{book}.json` — Per-book merged entities (e.g. `characters_excession.json`)
+(Global `data/entities/{type}.json` is only produced if merging across all books)
 
 **Example entry:**
 ```json
@@ -472,7 +481,11 @@ python3 citation_checker.py --entity-type characters --limit 5
 python3 citation_checker.py --article dajeil-gelian
 
 # Dry run
+# Dry run
 python3 citation_checker.py --dry-run
+
+# Verify/Fix extraction aliases (hallucination check)
+python3 verify_extraction_aliases.py --book excession
 ```
 
 **View compiled entity data:**

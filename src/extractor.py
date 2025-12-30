@@ -466,6 +466,29 @@ def _write_extraction(
         
         # Update entity with validated facts
         ent_data["information"] = validated_infos
+        
+        # ===================================================================
+        # ALIAS VERIFICATION: Remove hallucinated aliases not in source text
+        # ===================================================================
+        original_aliases = ent_data.get("aliases", [])
+        validated_aliases = []
+        
+        for alias in original_aliases:
+            if not alias:
+                continue
+            # Check if alias appears in source text (case-insensitive)
+            if _normalize_for_match(alias.lower()) in _normalize_for_match(chunk.text.lower()):
+                validated_aliases.append(alias)
+            else:
+                logger.warning(
+                    "Hallucinated alias in %s (%s) for entity '%s': '%s' not found in source text",
+                    chunk.chunk_id,
+                    entity_type,
+                    ent_data.get("name", "Unknown"),
+                    alias,
+                )
+        
+        ent_data["aliases"] = validated_aliases
         validated_entities.append(ent_data)
     
     # Build extraction with validated entities
