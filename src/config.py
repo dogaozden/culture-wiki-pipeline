@@ -24,7 +24,7 @@ WIKI_DIR = PROJECT_ROOT / "wiki"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
 # Chapter handling
-MAX_CHAPTER_TOKENS = 50_000
+MAX_CHAPTER_TOKENS = 10_000
 MIN_CHAPTER_TOKENS = 500
 
 # API configuration
@@ -33,10 +33,14 @@ MIN_CHAPTER_TOKENS = 500
 GEMINI_MODEL = "gemini-2.5-flash-lite-preview-09-2025"  # Default for extract
 GEMINI_MODEL_MERGE = "gemini-3-flash-preview"  # Default for merge - better dedup accuracy
 GEMINI_MODEL_SYNTHESIS = "gemini-2.5-flash-lite-preview-09-2025"  # Dev default. Use --model gemini-3-flash-preview for prod
+GEMINI_IMAGE_MODEL = "gemini-3-pro-image-preview"  # Nano Banana Pro for image generation
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 MAX_RETRIES = 3
 REQUESTS_PER_MINUTE = 60
 USE_CACHE = False  # LLM cache is opt-in; enable with --use-cache flag
+
+# Image generation
+IMAGES_DIR = DATA_DIR / "images"
 
 # Entity types we process
 ENTITY_TYPES = [

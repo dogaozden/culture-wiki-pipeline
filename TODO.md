@@ -55,6 +55,11 @@
   - "=== Merging 3/6: locations ===" before each entity type
 
 
+- [x] **Global Wiki Restoration** — 1,141 articles restored across all 10 books (Jan 2026)
+  - Fixed garbage entity regression in merge stage
+  - Resolved `NameError` in deduplication logic
+  - Full re-render with active relationship graph and search
+
 ## 📋 Near-Term
 
 - [ ] **Apply deduplication to all entity types** and re-synthesize
@@ -65,9 +70,8 @@
   - Merge now prints detailed table at end (see Merge Summary Table above)
   - Synthesize: TODO - add success/failure count summary
 
-- [ ] **Process remaining 9 Culture novels**
-  - Consider Phlebas, Player of Games, Use of Weapons, etc.
-  - Order: chronological publication or narrative order?
+- [x] **Process remaining 9 Culture novels** (Jan 2026)
+  - All 10 books now have completedArticles and verified entity data.
   
 - [ ] **Cross-book entity linking**
   - Entities appearing in multiple books merge automatically (slug-based)
@@ -83,11 +87,20 @@
   - Filter entities by book until cross-book linking is ready
   - Each book shows entity counts and completion status
 
+- [x] **Entity Image Generation (Nano Banana Pro)**
+  - ✅ Extract visual descriptions from source text for major entities (>10 citations)
+  - ✅ Two-pass "Curator" architecture: extract candidates → validate quotes → select best
+  - ✅ Generate image prompts via LLM from descriptions
+  - ✅ Call `gemini-3-pro-image-preview` API to generate portraits
+  - ✅ Ship portraits by class (GSV, GCU, ROU, etc.) with predefined prompts
+  - ✅ Render: copies images to `wiki/images/`, displays in article headers
+  - CLI: `--stage image --entity "Name"` for single entity, `--book` for batch
+
 ## 🔮 Longer-Term
-- [ ] **Client-side search**
-  - lunr.js or fuse.js for full-text search
-  - Index: entity names, aliases, summaries, section content
-  - Keyboard shortcut (Cmd+K) for quick access
+- [x] **Client-side search** *(Completed Dec 2025)*
+  - ✅ `search_index.json` generated at render time
+  - ✅ Index: entity names, aliases, summaries
+  - Search widget in wiki header
 
 - [ ] **Incremental updates**
   - Re-extract single chapters without full re-merge
@@ -97,11 +110,11 @@
   - GitHub Pages or Netlify
   - CI/CD for automated rebuilds
 
-- [ ] **Relationship visualization**
-  - Character relationship graphs (force-directed with D3.js)
-  - Interactive: click nodes to navigate to articles
-  - Timeline of events across novels
-  - Faction hierarchies
+- [x] **Relationship visualization** *(Completed Dec 2025)*
+  - ✅ `graph_data.json` with nodes/edges for D3.js
+  - ✅ Interactive `graph.html` page
+  - ✅ Click nodes to navigate to articles
+  - Future: Timeline UI, faction hierarchies
 
 - [ ] **Reader contributions**
   - Correction suggestions via GitHub issues

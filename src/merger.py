@@ -177,8 +177,12 @@ def _load_extractions(entity_type: str) -> List[EntityExtraction]:
     for book_dir in base_dir.iterdir():
         if not book_dir.is_dir():
             continue
+        book_folder_slug = slugify(book_dir.name)  # e.g., "the-player-of-games"
         for path in sorted(book_dir.glob("*.json")):
-            extractions.append(EntityExtraction(**read_json(path)))
+            ext = EntityExtraction(**read_json(path))
+            # Store the book folder slug for filtering
+            ext._book_folder_slug = book_folder_slug
+            extractions.append(ext)
     return extractions
 
 
@@ -542,19 +546,22 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
     # Filter to specific book if requested
     if book_slug:
         original_count = len(extractions)
-        # Normalize: convert hyphens to underscores for comparison (slugify uses hyphens, chunk_ids use underscores)
-        normalized_book_slug = book_slug.lower().replace("-", "_")
-        extractions = [e for e in extractions if e.chunk_id.lower().replace("-", "_").startswith(normalized_book_slug)]
-        logger.info("Filtered extractions from %d to %d for book: %s (normalized: %s)", original_count, len(extractions), book_slug, normalized_book_slug)
+        # Use the book folder slug stored during loading (not chunk_id prefix)
+        normalized_book_slug = book_slug.lower().replace("_", "-")
+        extractions = [e for e in extractions if getattr(e, '_book_folder_slug', '').lower() == normalized_book_slug]
+        logger.info("Filtered extractions from %d to %d for book: %s", original_count, len(extractions), book_slug)
     merged: Dict[str, MergedEntity] = {}
 
     for extraction in tqdm(extractions, desc="Merging entities"):
-        # Extract book slug from chunk_id (e.g., "Excession_split_006" -> "excession")
-        chunk_id = extraction.chunk_id
-        if "_split_" in chunk_id:
-            book_slug = chunk_id.split("_split_")[0].lower()
-        else:
-            book_slug = chunk_id.split("_")[0].lower()
+        # Get book slug from folder path (set during loading) or fall back to chunk_id parsing
+        book_slug = getattr(extraction, '_book_folder_slug', None)
+        if not book_slug:
+            # Fallback: extract from chunk_id (e.g., "Excession_split_006" -> "excession")
+            chunk_id = extraction.chunk_id
+            if "_split_" in chunk_id:
+                book_slug = chunk_id.split("_split_")[0].lower()
+            else:
+                book_slug = chunk_id.split("_")[0].lower()
         for ent in extraction.entities:
             candidate_names = [ent.name] + list(ent.aliases)
             existing_key = _find_existing_key(merged, candidate_names)
@@ -639,19 +646,19 @@ def merge_entities(entity_type: str, force: bool = False, skip_dedup: bool = Fal
                 client = GeminiClient()
             
             # Step 1: Garbage filter - remove obvious garbage (pronouns, numbered speakers)
-            garbage_removed = run_garbage_filter(entity_type, client)
+            garbage_removed = run_garbage_filter(entity_type, client, book_slug=book_slug)
             if garbage_removed > 0:
                 logger.info("Garbage filter removed %d non-entities from %s", garbage_removed, entity_type)
             
             # Step 2: Within-entity dedup
-            dedup_removed = run_deduplication(entity_type, client)
+            dedup_removed = run_deduplication(entity_type, client, book_slug=book_slug)
             if dedup_removed > 0:
                 logger.info("LLM deduplication removed %d duplicates from %s", dedup_removed, entity_type)
             
             # Step 3: Cross-entity dedup - remove ships from non-ship entity types
             cross_removed = 0
             if entity_type in ("characters", "technology", "factions", "locations"):
-                cross_removed = run_cross_entity_dedup(entity_type, client)
+                cross_removed = run_cross_entity_dedup(entity_type, client, book_slug=book_slug)
                 if cross_removed > 0:
                     logger.info("Cross-entity dedup removed %d ships from %s", cross_removed, entity_type)
             
@@ -750,20 +757,20 @@ def apply_entity_filters(entity_type: str, skip_dedup: bool = False, client: Gem
             if client is None:
                 client = GeminiClient()
             
-            garbage_removed = run_garbage_filter(entity_type, client)
+            garbage_removed = run_garbage_filter(entity_type, client, book_slug)
             if garbage_removed > 0:
                 logger.info("Garbage filter removed %d non-entities from %s", garbage_removed, entity_type)
             
-            dedup_removed = run_deduplication(entity_type, client)
+            dedup_removed = run_deduplication(entity_type, client, book_slug)
             if dedup_removed > 0:
                 logger.info("LLM deduplication removed %d duplicates from %s", dedup_removed, entity_type)
             
             if entity_type in ("characters", "technology", "factions", "locations"):
-                cross_removed = run_cross_entity_dedup(entity_type, client)
+                cross_removed = run_cross_entity_dedup(entity_type, client, book_slug)
                 if cross_removed > 0:
                     logger.info("Cross-entity dedup removed %d ships from %s", cross_removed, entity_type)
             
-            final_count = len(load_entities(entity_type))
+            final_count = len(load_entities(entity_type, book_slug))
         except Exception as e:
             logger.warning("LLM filters failed for %s: %s", entity_type, e)
             final_count = len(merged)

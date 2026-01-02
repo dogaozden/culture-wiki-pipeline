@@ -29,9 +29,10 @@ class Pipeline:
         return self._client
 
     def _discover_books(self) -> List[Path]:
+        """Discover book folders, excluding Apocrypha (handled manually)."""
         books: List[Path] = []
         for path in config.BOOKS_DIR.iterdir():
-            if path.is_dir() and not path.name.startswith("."):
+            if path.is_dir() and not path.name.startswith(".") and path.name.lower() != "apocrypha":
                 books.append(path)
         return books
 
@@ -62,6 +63,7 @@ class Pipeline:
         yes: bool = False,
         max_retries: Optional[int] = None,
         skip_dedup: bool = False,
+        entity_name: Optional[str] = None,
     ) -> None:
         stages = ["chunk", "extract", "merge", "synthesize", "render", "clean"]
         if stage != "all" and stage not in stages:
@@ -79,11 +81,12 @@ class Pipeline:
                 force=force,
                 dry_run=dry_run,
                 limit=limit,
+                entity_name=entity_name,
             )
         if stage in ("merge", "all"):
             self.merge(entity_type=entity_type, force=force, skip_dedup=skip_dedup, book=book)
         if stage in ("synthesize", "all"):
-            self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries, book=book)
+            self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries, book=book, entity_name=entity_name)
         if stage in ("render", "all"):
             self.render()
 
@@ -98,7 +101,9 @@ class Pipeline:
         entity_type: Optional[str] = None,
         force: bool = False,
         dry_run: bool = False,
+
         limit: Optional[int] = None,
+        entity_name: Optional[str] = None,
     ) -> None:
         from .extractor import extract_entities_for_book
 
@@ -138,7 +143,8 @@ class Pipeline:
             books_to_process = self._discover_books()
             logger.info("Book-isolated merge: processing %d books independently", len(books_to_process))
         
-        for book_name in books_to_process:
+        for book_path in books_to_process:
+            book_name = book_path.name if hasattr(book_path, 'name') else str(book_path)
             book_slug = slugify(book_name)
             logger.info("")
             logger.info("=" * 80)
@@ -256,7 +262,7 @@ class Pipeline:
         logger.info("  Final     - Entities remaining after all filtering stages")
 
     def synthesize(
-        self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None, book: Optional[str] = None
+        self, entity_type: Optional[str] = None, force: bool = False, max_retries: Optional[int] = None, book: Optional[str] = None, entity_name: Optional[str] = None
     ) -> None:
         from .synthesizer import synthesize_articles
         from .gemini_client import GeminiClient
@@ -286,7 +292,8 @@ class Pipeline:
         
         types = [entity_type] if entity_type else config.ENTITY_TYPES
         
-        for book_name in books_to_process:
+        for item in books_to_process:
+            book_name = item.name if hasattr(item, 'name') else str(item)
             book_slug = slugify(book_name)
             logger.info("")
             logger.info("=" * 80)
@@ -295,7 +302,7 @@ class Pipeline:
             
             for idx, et in enumerate(types, 1):
                 logger.info("=== Synthesizing %d/%d: %s ===", idx, len(types), et)
-                synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug)
+                synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug, entity_name=entity_name)
 
     def render(self) -> None:
         from .renderer import render_all

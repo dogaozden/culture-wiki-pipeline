@@ -453,7 +453,7 @@ def _build_chunk_context_map() -> Dict[str, Chapter]:
 
 
 def synthesize_articles(
-    entity_type: str, client: GeminiClient, force: bool = False, max_retries: int = None, book_slug: str = None
+    entity_type: str, client: GeminiClient, force: bool = False, max_retries: int = None, book_slug: str = None, entity_name: str = None
 ) -> None:
     """Generate wiki articles for a specific entity type."""
     # Default max retries if not specified
@@ -481,6 +481,22 @@ def synthesize_articles(
             logger.info("Loaded %d entities from book-specific file: %s", len(merged_entities), entity_file)
     else:
         merged_entities = _load_merged_entities(entity_type)
+
+    # Filter by entity name if provided
+    if entity_name:
+        entity_name_lower = entity_name.lower()
+        filtered = []
+        for e in merged_entities:
+            # Check canonical name
+            if e.canonical_name.lower() == entity_name_lower:
+                filtered.append(e)
+                continue
+            # Check aliases
+            if any(a.lower() == entity_name_lower for a in e.aliases):
+                filtered.append(e)
+                continue
+        merged_entities = filtered
+        logger.info("Filtered entities by name '%s': %d matched", entity_name, len(merged_entities))
     
     extractions = _load_extractions(entity_type)
     chunk_map = _build_chunk_context_map()
@@ -489,11 +505,21 @@ def synthesize_articles(
     output_dir.mkdir(parents=True, exist_ok=True)
     expected_slugs = {slugify(ent.canonical_name) for ent in merged_entities}
 
-    if force:
+    if force and book_slug:
+        # Only remove stale articles that belong to this book
         for path in output_dir.glob("*.json"):
             if path.stem not in expected_slugs:
-                logger.info("Removing stale article %s", path.name)
-                path.unlink()
+                try:
+                    import json
+                    with open(path) as f:
+                        article_data = json.load(f)
+                    article_books = article_data.get('appears_in', [])
+                    # Only delete if article belongs to this book
+                    if book_slug.lower().replace("-", "_") in [b.lower().replace("-", "_") for b in article_books]:
+                        logger.info("Removing stale article %s (belongs to %s)", path.name, book_slug)
+                        path.unlink()
+                except Exception:
+                    pass  # Skip if can't read article
 
     pending: List[MergedEntity] = []
     for merged in merged_entities:

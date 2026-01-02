@@ -65,9 +65,12 @@ class Chapter(BaseModel):
 
     @property
     def chunk_id(self) -> str:
-        """Return source filename stem (e.g., 'Excession_split_006') for direct verification."""
+        """Return unique chunk identifier including split part if applicable."""
         from pathlib import Path
-        return Path(self.source_file).stem
+        base = Path(self.source_file).stem
+        if self.is_split and self.split_part is not None:
+            return f"{base}_split_{self.split_part:03d}"
+        return base
 
 
 @datamodel

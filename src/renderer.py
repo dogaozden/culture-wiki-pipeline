@@ -147,6 +147,13 @@ def _copy_assets() -> None:
     if search_js_src.exists():
         shutil.copy2(search_js_src, search_js_dest)
 
+    # Copy images if they exist
+    images_src = config.IMAGES_DIR
+    images_dst = config.WIKI_DIR / "images"
+    if images_src.exists():
+        shutil.copytree(images_src, images_dst, dirs_exist_ok=True)
+        logger.info(f"Copied images from {images_src} to {images_dst}")
+
 
 def _copy_crown_jewels() -> None:
     """Copy manually-crafted articles from crown_jewels/ to data/articles/.
@@ -283,6 +290,11 @@ def render_articles(entity_type: str) -> List[Article]:
 
     for article in articles:
         out_path = output_dir / f"{article.slug}.html"
+        # Check for image
+        image_filename = f"{article.slug}.png"
+        image_path = config.IMAGES_DIR / entity_type / image_filename
+        has_image = image_path.exists()
+
         html = template.render(
             title=article.entity_name,
             article=article,
@@ -291,6 +303,7 @@ def render_articles(entity_type: str) -> List[Article]:
             citations_json=json.dumps(
                 [c.model_dump() for c in article.citations], ensure_ascii=False
             ),
+            image_path=f"images/{entity_type}/{image_filename}" if has_image else None,
         )
         out_path.write_text(html, encoding="utf-8")
     return articles
@@ -307,6 +320,12 @@ def _render_articles_with_lookup(entity_type: str, articles: List[Article]) -> N
         root = _root_path_for(out_path)
         # Build citation_map for numbered display
         citation_map = _build_citation_map(article.citations)
+        # Check for image
+        image_filename = f"{article.slug}.png"
+        image_path = config.IMAGES_DIR / entity_type / image_filename
+        has_image = image_path.exists()
+
+
         html = template.render(
             title=article.entity_name,
             article=article,
@@ -316,6 +335,7 @@ def _render_articles_with_lookup(entity_type: str, articles: List[Article]) -> N
             citations_json=json.dumps(
                 [c.model_dump() for c in article.citations], ensure_ascii=False
             ),
+            image_path=f"images/{entity_type}/{image_filename}" if has_image else None,
         )
         out_path.write_text(html, encoding="utf-8")
 

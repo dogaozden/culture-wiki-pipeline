@@ -5,6 +5,12 @@
 {% block content %}
 <article class="wiki-article">
     <header class="article-header">
+        {% if image_path %}
+        <div class="article-portrait">
+            <img src="{{ root_path }}/{{ image_path }}" alt="Portrait of {{ article.entity_name }}"
+                class="entity-image">
+        </div>
+        {% endif %}
         <span class="article-type-badge">{{ article.entity_type.replace('_', ' ') | title }}</span>
         <h1 class="article-title">{{ article.entity_name }}</h1>
 

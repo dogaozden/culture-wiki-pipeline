@@ -11,7 +11,17 @@
 │    CHUNK    │ →  │   EXTRACT   │ →  │    MERGE    │ →  │  SYNTHESIZE │ →  │   RENDER    │
 │ (split text)│    │(per chapter)│    │ (combine)   │    │ (write)     │    │ (HTML)      │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+                                                                ↓
+                                                         ┌─────────────┐
+                                                         │    IMAGE    │ (optional)
+                                                         │ (portraits) │
+                                                         └─────────────┘
 ```
+
+**Pipeline Orchestration (`src/pipeline.py`)**
+- Stage order is enforced by `Pipeline.run()` (`chunk` → `extract` → `merge` → `synthesize` → `render`, or `clean`).
+- `--book` accepts a direct path, exact folder name, or slugified name; if omitted, all book folders are processed.
+- Book discovery **excludes** `books/Apocrypha/` because those files are rendered directly in the render stage.
 
 > [!IMPORTANT]  
 > **Model Selection (Dec 2025)**  
@@ -31,6 +41,17 @@
 > - **Opt-in cache**: LLM cache is OFF by default. Use `--use-cache` to enable.
 > - **Tolerance validation**: Large entities (80+ facts) allow up to 3 missing citations
 > - **`--book` flag**: Process a single book (works for chunk/extract/merge/synthesize stages)
+> - **Selective runs**: `--entity` targets a single entity; `--entity-type` restricts to one type
+> - **Controlled extraction**: `--dry-run` prints the first prompt; `--limit N` caps chapters
+> - **Merge tuning**: `--skip-dedup` skips LLM semantic dedup (faster, less thorough)
+> - **Cleaning outputs**: `--stage clean` + `--clean` targets (use `--yes` to skip confirmation)
+
+**CLI Entry Point (`run.py`)**
+- `--stage`: one of `chunk`, `extract`, `merge`, `synthesize`, `render`, `clean`, `all`, `image`.
+- `--force`: reprocess even if cached outputs exist (does not bypass the Gemini cache).
+- `--entity-type`: restricts work to a single entity type for extract/merge/synthesize/image.
+- `--use-cache`: enable the Gemini response cache (off by default).
+- `--clean`: one or more targets (`all`, `cache`, `extractions`, `entities`, `articles`, `wiki`, `chunks`, `output`).
 
 ---
 
@@ -43,7 +64,7 @@ Split book markdown files into processable chunks that fit within token limits.
 1. **Load chapter files** — Reads `*.md` and `*.html` from `books/{BookName}/`
 2. **Split by scene breaks** — Uses `***` or `---` separators first
 3. **Split by paragraphs** — Falls back to paragraph splitting if no scene breaks
-4. **Token limit check** — Each chunk stays under `MAX_CHAPTER_TOKENS` (50,000)
+4. **Token limit check** — Each chunk stays under `MAX_CHAPTER_TOKENS` (10,000)
 
 **When to use:**  
 If your book has very long chapters that exceed the token limit, run chunk first:
@@ -91,10 +112,14 @@ After getting LLM response, we run deterministic code to:
    - Rejects hallucinated quotes before saving
    - Logged as warnings for debugging
 
-2. **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
-   - Example: `excession_ch014#003` = 3rd fact from chapter 14
-   - IDs are stable across re-runs (deterministic)
-   - Used by synthesis for citation validation
+2.  **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
+    -   Example: `excession_ch014#003` = 3rd fact from chapter 14
+    -   IDs are stable across re-runs (deterministic)
+    -   Used by synthesis for citation validation
+
+3.  **Filter aliases against source text** — Drop aliases that do not appear verbatim in the chapter
+    -   Case-insensitive match after normalizing quotes/ellipses and collapsing whitespace
+    -   Logged as warnings to surface hallucinated aliases
 
 ```
 LLM Response → Validate Quotes → Assign Fact IDs → Save JSON
@@ -123,38 +148,44 @@ Combine all chapter extractions into unified entity lists.
 
 **The process (in order):**
 
-1. **Deterministic Python matching (FREE)**  
-   - Slug-based: "Sleeper Service" from Ch1 + "Sleeper Service" from Ch5 → same entity
-   - Alias overlap: If Entity A has alias "X" and Entity B is named "X" → merge
-   - Ship prefix stripping: "GCU Grey Area" matches "Grey Area"
+1.  **Deterministic Python matching (FREE)**  
+    -   Slug-based: "Sleeper Service" from Ch1 + "Sleeper Service" from Ch5 → same entity
+    -   Alias overlap: If Entity A has alias "X" and Entity B is named "X" → merge
+    -   Ship prefix stripping: "GCU Grey Area" matches "Grey Area"
+    -   Generic alias exclusion: skips vague aliases (e.g., "woman", "the man") during matching to avoid false merges
 
-2. **Canonical name selection**  
-   Picks the name that appears in the **most chapters** (by extraction_refs count).
-   This ensures "Sleeper Service" (48 chapters) beats "Quietly Confident" (mentioned once).
+2.  **Canonical name selection**  
+    Picks the name that appears in the **most chapters** (by extraction_refs count).
+    This ensures "Sleeper Service" (48 chapters) beats "Quietly Confident" (mentioned once).
 
-3. **Type Voting (NEW)**
-   - Scans ALL extractions to count how often an entity appears in each type.
-   - Example: "Veppers" appears 50 times as `character`, 3 times as `ship`.
-   - Action: Removes "Veppers" from `ships` because `characters` is the dominant type.
-   - Prevents cross-contamination (e.g. ship names appearing as locations).
+3.  **Type Voting (NEW)**
+    -   Scans ALL extractions to count how often an entity appears in each type.
+    -   Example: "Veppers" appears 50 times as `character`, 3 times as `ship`.
+    -   Action: Removes "Veppers" from `ships` because `characters` is the dominant type.
+    -   Prevents cross-contamination (e.g. ship names appearing as locations).
 
-   - Prevents cross-contamination (e.g. ship names appearing as locations).
+4.  **Automated Alias Verification (NEW)**
+    -   Before merging, validates all aliases against source text.
+    -   Rejects hallucinated aliases (e.g. "Ms Gelian" for Ulver Seich) that don't appear verbatim.
+    -   Prevents false merges caused by shared hallucinated aliases.
+    -   Normalizes quotes (curly quotes → ASCII, ellipsis → `...`) and collapses whitespace before matching.
+    -   Locates chunk text by scanning `books/` for slug-matching folders and `.md`/`.html`/`.txt` chapter files.
+    -   Additional alias blacklist filters drop pronouns, generic roles, and ship-prefix-like aliases for non-ship types.
 
-4. **Automated Alias Verification (NEW)**
-   - Before merging, validates all aliases against source text.
-   - Rejects hallucinated aliases (e.g. "Ms Gelian" for Ulver Seich) that don't appear verbatim.
-   - Prevents false merges caused by shared hallucinated aliases.
+5.  **LLM Garbage Filter (NEW Dec 2025)**
+    -   Removes generic descriptors: "the woman", "Admiral", "Speaker 1"
+    -   Runs before within-entity dedup
+    -   **Book Isolation**: Targeted at book-specific entity files (e.g., `characters_excession.json`) to prevent cross-novel leakage.
+    -   Uses 3 Flash by default (much more conservative than 2.5 Flash Lite)
 
-5. **LLM Garbage Filter (NEW Dec 2025)**
-   - Removes generic descriptors: "the woman", "Admiral", "Speaker 1"
-   - Runs before within-entity dedup
-   - Uses 3 Flash by default (much more conservative than 2.5 Flash Lite)
-
-5. **LLM Deduplication**
-   - First runs **alias pre-filter**: asks LLM to identify facts mentioning former names
-   - Then runs **main dedup**: compares entities with their alias-related facts
-   - Batched processing with retry logic for API failures
-   - **Default model: gemini-3-flash-preview** for better accuracy
+6.  **LLM Deduplication**
+    -   First runs **alias pre-filter**: asks LLM to identify facts mentioning former names
+    -   Then runs **main dedup**: compares entities with their alias-related facts
+    -   Batched processing with retry logic for API failures
+    -   **Default model: gemini-3-flash-preview** for better accuracy
+    -   Alias pre-filter resolves each entity's `extraction_refs` to extraction JSON and scans facts for the entity name + aliases (caps facts per entity)
+    -   Applied dedup keeps the canonical entity and appends deleted names as aliases
+    -   Cross-entity dedup prompt includes a ship name reference list to remove leaked ships from other types
 
 > 🏗️ **Two-Pass Architecture**
 > 
@@ -174,13 +205,13 @@ Combine all chapter extractions into unified entity lists.
 > 2. Apply **Deterministic Cross-Type Filters** (now with fresh data from all types!)
 >    - `_filter_known_ships()`: Remove ship names from non-ship types
 >    - `_filter_known_characters()`: Remove character names from non-character types
+>    - `_filter_entities_from_events()`: Remove leaked character/ship/location names from events
 > 3. Apply **LLM Filters** (Garbage → Semantic Dedup → Cross-Entity)
 
 > ✅ **Fixed: Canonical Name Selection**
 > Previously picked the longest name, causing "Quietly Confident" to be canonical instead of "Sleeper Service".
 > Now uses chapter frequency — names appearing in more chapters win.
 
-**Output:**  
 **Output:**  
 `data/entities/{type}_{book}.json` — Per-book merged entities (e.g. `characters_excession.json`)
 (Global `data/entities/{type}.json` is only produced if merging across all books)
@@ -206,8 +237,8 @@ At the end of merge, a table shows what each filter stage removed:
 | **Determ** | Deterministic | Ship/event entity removal |
 | **Garbage** | LLM | Generic descriptor removal |
 | **Dedup** | LLM | Within-entity duplicate removal |
-| **Cross** | LLM | Cross-entity ship removal |
-| **Final** | — | Entities after all filtering |
+| **Cross** | LLM | entities that belong to a different type (e.g., ship names in characters) |
+| **Final** | — | ~1,141 articles remaining (Global Restoration complete) |
 
 ---
 
@@ -225,7 +256,11 @@ At the end of merge, a table shows what each filter stage removed:
    - Code parses the LLM output for all `[fact_id]` tags.
    - It looks up each ID in the original extraction files.
    - It constructs the full `citations` JSON array deterministically using the *original* verified quote and metadata.
-   - **Validation:** If the LLM uses a tag that doesn't exist in the input -> **REJECT** the article (Hallucination detected).
+   - Citation metadata comes from extraction JSON (chapter title and book inferred from `chunk_id`); `source_file` is filled from the chapter map.
+   - **Validation:** If the LLM uses a tag that doesn't exist in the input -> **REJECT** the article (Hallucination detected, no retries).
+4. **Citation Density Gate:**
+   - Articles must meet a minimum citation rate (50% of sentences include citations).
+   - Low-density articles are retried up to the synthesis retry limit, then skipped.
 
 **Why this is better:**
 - **Zero Quote Hallucinations:** The quote always comes from the source file, never the LLM's memory.
@@ -246,6 +281,8 @@ At the end of merge, a table shows what each filter stage removed:
 - LLM is instructed to use exact IDs in article text and citations array
 - Validation checks that all referenced `[fact_id]` markers exist in the citations array
 - IDs are normalized to lowercase for consistent matching
+ - Facts are only included in the prompt if their quotes appear verbatim in chapter text
+ - Entity matching is name/alias overlap against extractions (case-insensitive)
 
 ### Citation Validation Flow
 
@@ -278,6 +315,10 @@ Citation accepted → Build from pre-validated data
 >
 > **NO looser validation** — We require 100% valid citations. Never accept hallucinated sources.
 
+**Book-scoped synthesis behavior:**
+- If a `{type}_{book}.json` file is missing, synthesis falls back to the global `{type}.json` and filters entities by `appears_in` for that book.
+- When `--force` and `--book` are both used, stale article deletion only applies to articles that belong to that book.
+
 **Output:**  
 `data/articles/{type}/{slug}.json`
 
@@ -307,11 +348,12 @@ Turn JSON articles into a browseable HTML website.
 **The process:**
 
 1. **Build entity lookup** — Map all entity names/aliases to their URLs (for cross-linking)
-2. **Render HTML** from Jinja templates
-3. **Copy assets** — CSS, fonts, images
-4. **Generate indexes** — Book pages, entity type pages
-5. **Generate Search Index** — `search_index.json` for client-side search
-6. **Generate Graph** — `graph_data.json` and `graph.html` for relationship visualization
+2. **Apply crown jewels** — Copy any hand-written JSON from `crown_jewels/` into `data/articles/` to override LLM output
+3. **Render HTML** from Jinja templates
+4. **Copy assets** — CSS, fonts, images
+5. **Generate indexes** — Book pages, entity type pages
+6. **Generate Search Index** — `search_index.json` for client-side search
+7. **Generate Graph** — `graph_data.json` and `graph.html` for relationship visualization
 
 **Output:**  
 `wiki/` — Static HTML site you can serve locally or deploy
@@ -319,11 +361,72 @@ Turn JSON articles into a browseable HTML website.
 **Features:**
 - Clickable citations (scroll to source quote)
 - Cross-entity links (character can link to ship they're on)
+- Automatic in-article autolinks (first mention per block, avoids self-links)
+- Citation display numbers are mapped from fact IDs (renderer moves citations after punctuation and anchors use normalized IDs)
 - **Interactive Graph**: Visual exploration of entity relationships
 - **Instant Search**: Client-side search across all entities
 - Book-organized navigation
-- Prominence-based sorting
+- Prominence-based sorting (computed at render time from chapter coverage + citation + cross-reference counts)
 - **Apocrypha rendering**: Markdown files in `books/Apocrypha/` are rendered directly to HTML (bypasses the entity extraction pipeline)
+- **Entity images**: If `data/images/{entity_type}/{slug}.png` exists, displays portrait in article header
+
+---
+
+## Stage 5: IMAGE 🎨 (Optional)
+
+**What happens:**  
+Generate portrait images for entities using Gemini's native image generation (gemini-3-pro-image-preview).
+
+**The process (Curator Architecture):**
+
+1. **Description Extraction (Pass 1)**
+   - loads merged entity's `extraction_refs` (up to 10 chunks)
+   - For each chunk, asks LLM: "Find the best physical description of {entity_name}"
+   - **Hallucination check**: Validates each extracted quote exists in source text
+   - Rejected quotes logged as warnings
+
+2. **Curator Selection (Pass 2)**
+   - If multiple valid descriptions found, LLM picks the most representative one
+   - Prefers stable appearances over temporary disguises
+   - Logs reasoning: "Candidate 3 has most detailed physical features..."
+
+3. **Prompt Generation**
+   - Converts selected quote into image generation prompt
+   - Adds Culture-universe sci-fi aesthetic, cinematic lighting
+   - Ship classes (GSV, GCU, ROU, LOU, MSV, GCV) have predefined prompts, including `xGSV/xGCU/xROU` prefixes
+
+4. **Image Generation**
+   - Calls `gemini-3-pro-image-preview` via `generate_content()` with `response_modalities: ["IMAGE", "TEXT"]`
+   - Saves to `data/images/{entity_type}/{slug}.png`
+   - Ships without a found quote can still use the class-based prompt fallback
+
+**CLI Usage:**
+```bash
+# Generate image for a specific entity
+python3 run.py --stage image --entity "Dajeil Gelian"
+
+# Generate for all major entities in a book
+python3 run.py --stage image --book excession --min-citations 10
+
+# Test with a ship class prompt
+python3 run.py --stage image --ship-class GSV --dry-run
+
+# Dry run (no API calls)
+python3 run.py --stage image --entity "Dajeil Gelian" --dry-run
+```
+
+**Key features:**
+- **Quote validation**: Only verbatim-verified descriptions used
+- **Source traceability**: Logs which chunk file the quote came from
+- **Skip existing**: Won't regenerate images that already exist
+- **Ship class shortcuts**: GSV/GCU/ROU/etc. have curated sci-fi prompts
+
+**Supporting tools:**
+- `extract_descriptions.py` — standalone CLI to extract visual description quotes for a single entity or all “major” entities in a book (min citation threshold), using `extraction_refs` to load source chunks and a JSON-returning prompt. Useful for testing description extraction without running full image generation.
+- `generate_image_prompt.py` — standalone CLI that turns description quotes into structured prompt JSON (image_prompt/negative_prompt/style_tags); supports ship-class shortcuts (GSV/GCU/ROU/etc.), dry runs, and batch input from `extract_descriptions.py` output.
+
+**Output:**  
+`data/images/{entity_type}/{slug}.png` → Copied to `wiki/images/` during render
 
 ---
 
@@ -348,7 +451,9 @@ data/entities/             ← Merged entity lists (one per type, or {type}_{boo
     ↓
 data/articles/             ← Synthesized wiki articles
     ↓
-wiki/                      ← Rendered HTML website
+data/images/               ← Generated entity portraits (optional, --stage image)
+    ↓
+wiki/                      ← Rendered HTML website (images copied to wiki/images/)
 ```
 
 ---
@@ -376,11 +481,12 @@ wiki/                      ← Rendered HTML website
 | Extract | ~100 chapters × 6 types = 600 calls | ~$3-5 |
 | Merge (dedup) | ~10 batches × 6 types = 60 calls | ~$0.50 |
 | Synthesize | ~1000 entities | ~$5-10 |
-| **Total** | | **~$10-15 per novel** |
+| Image (optional) | ~50 major entities × 3 calls each | ~$2-5 |
+| **Total** | | **~$10-20 per novel** |
 
 ---
 
-*Last updated: December 29, 2025*
+*Last updated: January 2, 2026*
 ## 💻 CLI Usage
 
 ### Setup
@@ -459,16 +565,22 @@ python3 run.py --stage clean --clean output --yes
 ### Reference: CLI Flags
 
 - `--force`: Regenerate outputs even if they already exist.
+- `--entity`: Focus on a single named entity (synthesis/image).
 - `--entity-type`: Focus on a single category (characters, ships_and_minds, etc.).
+- `--dry-run`: Print the first extract prompt and skip API calls.
 - `--limit N`: Process only N items (speed up testing).
 - `--workers N`: Set parallel workers (default: 32).
 - `--max-retries N`: Set max synthesis retries on citation failures (default: 10).
 - `--book`: Limit processing to a specific book (works for chunk/extract/merge/synthesize).
 - `--skip-dedup`: Skip LLM deduplication during merge.
 - `--use-cache`: Enable LLM response caching (default: OFF). Cache is model-specific.
+- `--clean`: For clean stage, select output targets (`all`, `cache`, `extractions`, `entities`, `articles`, `wiki`, `chunks`, `output`).
+- `--yes`: For clean stage, skip confirmation prompt.
 - `--model`: Override the default model for the stage.
   - Synthesis defaults to `gemini-3-flash-preview` (better prose)
   - Extract/Merge default to `gemini-2.5-flash-lite` (no hallucinations)
+- `--ship-class`: For image stage, generate a ship class test image (GSV/GCU/ROU/etc.).
+- `--min-citations N`: For image stage, minimum citations to treat an entity as "major".
 
 ### Debugging & Verification
 
@@ -481,11 +593,13 @@ python3 citation_checker.py --entity-type characters --limit 5
 python3 citation_checker.py --article dajeil-gelian
 
 # Dry run
-# Dry run
 python3 citation_checker.py --dry-run
 
 # Verify/Fix extraction aliases (hallucination check)
 python3 verify_extraction_aliases.py --book excession
+
+# Dry-run with verbose logging (auto-discovers books if --book omitted)
+python3 verify_extraction_aliases.py --dry-run --verbose
 ```
 
 **View compiled entity data:**
@@ -496,6 +610,12 @@ python3 show_entity_data.py characters "Dajeil Gelian"
 python3 show_entity_data.py characters Dajeil --full-prompt
 ```
 
+**Gemini model listing:**
+```bash
+# Lists available Gemini models via GeminiClient
+python3 inspect_genai.py
+```
+
 **Manual LLM deduplication:**
 ```bash
 # Preview duplicates
@@ -504,6 +624,10 @@ python3 deduplicate_entities.py --entity-type events --dry-run
 # Apply deduplication
 python3 deduplicate_entities.py --entity-type events --apply
 ```
+Notes:
+- The script runs an alias pre-filter that loads per-entity facts from `extraction_refs` and surfaces only name/alias-related facts to the LLM.
+- When applied, deleted names are added as aliases on the kept entity.
+- The same module also provides `run_garbage_filter()` and `run_cross_entity_dedup()` helpers (used by merge) for LLM garbage cleanup and removing leaked ships from other types.
 
 
 ### MCP Server (Claude Desktop)
@@ -522,3 +646,28 @@ source venv/bin/activate && python3 mcp_server.py
 - `get_relationships`: See entity connections
 - `get_citation`: Get a specific source quote by ID
 - `get_wiki_stats`: Overview of wiki coverage
+- `list_apocrypha`: List available "Apocrypha" documents (raw markdown)
+- `get_apocrypha`: Get the content of a specific "Apocrypha" document
+
+---
+
+## 🤖 Documentation Audit Agent
+
+We use a self-correcting workflow to keep this documentation up to date.
+
+**Script**: `.agent/scripts/audit_docs.py`  
+**How it works**:
+1. Checks `git status` for modified/added/deleted Python files.
+2. Spawns a **Codex subagent** for each changed file.
+3. The subagent reads the code and this documentation.
+4. If the documentation is missing new features or architectural changes, the subagent updates it.
+5. If a file was deleted, the subagent removes references to it.
+
+**Usage**:
+```bash
+# Audit only changed files (FAST)
+python3 .agent/scripts/audit_docs.py
+
+# Force audit of entire codebase (SLOW)
+python3 .agent/scripts/audit_docs.py --all
+```

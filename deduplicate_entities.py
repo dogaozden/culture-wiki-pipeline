@@ -243,9 +243,12 @@ def find_alias_facts_llm(client: GeminiClient, entity_type: str, entities: list[
     return alias_facts_map
 
 
-def load_entities(entity_type: str) -> list[dict]:
+def load_entities(entity_type: str, book_slug: str = None) -> list[dict]:
     """Load merged entities from JSON."""
-    path = config.ENTITIES_DIR / f"{entity_type}.json"
+    if book_slug:
+        path = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+    else:
+        path = config.ENTITIES_DIR / f"{entity_type}.json"
     if not path.exists():
         logger.error("No merged entities found at %s", path)
         return []
@@ -267,6 +270,7 @@ def find_garbage_entities(client: GeminiClient, entity_type: str, entities: list
     total_batches = (len(entities) + GARBAGE_BATCH_SIZE - 1) // GARBAGE_BATCH_SIZE
     for i in tqdm(range(0, len(entities), GARBAGE_BATCH_SIZE), desc=f"Garbage filter ({entity_type})", total=total_batches):
         batch = entities[i:i + GARBAGE_BATCH_SIZE]
+        batch_num = (i // GARBAGE_BATCH_SIZE) + 1
         
         # Build entity list for prompt
         entity_list = "\n".join(f"- {e['canonical_name']}" for e in batch)
@@ -288,12 +292,15 @@ def find_garbage_entities(client: GeminiClient, entity_type: str, entities: list
     return garbage_found
 
 
-def apply_garbage_filter(entity_type: str, garbage: list[dict]) -> int:
+def apply_garbage_filter(entity_type: str, garbage: list[dict], book_slug: str = None) -> int:
     """Remove identified garbage entities from the merged JSON."""
     if not garbage:
         return 0
     
-    path = config.ENTITIES_DIR / f"{entity_type}.json"
+    if book_slug:
+        path = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+    else:
+        path = config.ENTITIES_DIR / f"{entity_type}.json"
     data = read_json(path)
     entities = data.get("entities", [])
     
@@ -319,7 +326,7 @@ def apply_garbage_filter(entity_type: str, garbage: list[dict]) -> int:
     return removed
 
 
-def run_garbage_filter(entity_type: str, client: GeminiClient = None) -> int:
+def run_garbage_filter(entity_type: str, client: GeminiClient = None, book_slug: str = None) -> int:
     """
     Run LLM garbage filter to remove generic descriptors from entity list.
     Returns the number of entities removed.
@@ -327,7 +334,7 @@ def run_garbage_filter(entity_type: str, client: GeminiClient = None) -> int:
     if client is None:
         client = GeminiClient()
     
-    entities = load_entities(entity_type)
+    entities = load_entities(entity_type, book_slug)
     if not entities:
         return 0
     
@@ -341,7 +348,7 @@ def run_garbage_filter(entity_type: str, client: GeminiClient = None) -> int:
     
     logger.info("Found %d garbage entities in %s:", len(garbage), entity_type)
     
-    return apply_garbage_filter(entity_type, garbage)
+    return apply_garbage_filter(entity_type, garbage, book_slug)
 
 
 
@@ -419,9 +426,12 @@ def _find_duplicates_single_batch(client: GeminiClient, entity_type: str, entiti
         return []
 
 
-def apply_deduplication(entity_type: str, duplicates: list[dict]) -> None:
+def apply_deduplication(entity_type: str, duplicates: list[dict], book_slug: str = None) -> int:
     """Remove duplicate entities from the merged JSON."""
-    path = config.ENTITIES_DIR / f"{entity_type}.json"
+    if book_slug:
+        path = config.ENTITIES_DIR / f"{entity_type}_{book_slug}.json"
+    else:
+        path = config.ENTITIES_DIR / f"{entity_type}.json"
     data = read_json(path)
     entities = data.get("entities", [])
     
@@ -496,18 +506,18 @@ If no ships found:
 """
 
 
-def find_ships_in_entity_type(client: GeminiClient, source_type: str) -> list[dict]:
+def find_ships_in_entity_type(client: GeminiClient, source_type: str, book_slug: str = None) -> list[dict]:
     """
     Use LLM to identify ships that leaked into another entity type.
     Returns list of {"entity": name_to_remove, "matching_ship": ship_name_or_null}.
     """
     # Load source entities
-    source_entities = load_entities(source_type)
+    source_entities = load_entities(source_type, book_slug)
     if not source_entities:
         return []
     
     # Load ship names for reference
-    ships = load_entities("ships_and_minds")
+    ships = load_entities("ships_and_minds", book_slug)
     ship_names = [s["canonical_name"] for s in ships[:50]]  # Top 50 for prompt
     ship_names_str = ", ".join(ship_names)
     
@@ -535,12 +545,15 @@ def find_ships_in_entity_type(client: GeminiClient, source_type: str) -> list[di
         return []
 
 
-def apply_cross_entity_dedup(source_type: str, ships_found: list[dict]) -> int:
+def apply_cross_entity_dedup(source_type: str, ships_found: list[dict], book_slug: str = None) -> int:
     """Remove identified ships from a non-ship entity type."""
     if not ships_found:
         return 0
     
-    path = config.ENTITIES_DIR / f"{source_type}.json"
+    if book_slug:
+        path = config.ENTITIES_DIR / f"{source_type}_{book_slug}.json"
+    else:
+        path = config.ENTITIES_DIR / f"{source_type}.json"
     data = read_json(path)
     entities = data.get("entities", [])
     
@@ -563,7 +576,7 @@ def apply_cross_entity_dedup(source_type: str, ships_found: list[dict]) -> int:
     return removed
 
 
-def run_cross_entity_dedup(source_type: str, client: GeminiClient = None) -> int:
+def run_cross_entity_dedup(source_type: str, client: GeminiClient = None, book_slug: str = None) -> int:
     """
     Run cross-entity LLM deduplication to remove ships from non-ship entity types.
     Returns the number of entities removed.
@@ -574,7 +587,7 @@ def run_cross_entity_dedup(source_type: str, client: GeminiClient = None) -> int
     if client is None:
         client = GeminiClient()
     
-    ships_found = find_ships_in_entity_type(client, source_type)
+    ships_found = find_ships_in_entity_type(client, source_type, book_slug)
     
     if not ships_found:
         logger.info("No ships found in %s", source_type)
@@ -584,17 +597,17 @@ def run_cross_entity_dedup(source_type: str, client: GeminiClient = None) -> int
     for s in ships_found:
         logger.info("  - %s -> %s (%s)", s["entity"], s.get("matching_ship", "new ship"), s["reason"])
     
-    return apply_cross_entity_dedup(source_type, ships_found)
+    return apply_cross_entity_dedup(source_type, ships_found, book_slug)
 
 
-def run_deduplication(entity_type: str, client: GeminiClient = None) -> int:
+def run_deduplication(entity_type: str, client: GeminiClient = None, book_slug: str = None) -> int:
     """
     Run LLM deduplication on merged entities.
     Called automatically from the merger to deduplicate after consolidation.
     
     Returns the number of duplicates removed.
     """
-    entities = load_entities(entity_type)
+    entities = load_entities(entity_type, book_slug)
     if not entities:
         logger.info("No entities to deduplicate for %s", entity_type)
         return 0
@@ -622,7 +635,7 @@ def run_deduplication(entity_type: str, client: GeminiClient = None) -> int:
         logger.debug("  - KEEP %s, DELETE %s: %s", dup['keep'], dup['delete'], dup['reason'])
     
     # Apply deduplication
-    removed = apply_deduplication(entity_type, duplicates)
+    removed = apply_deduplication(entity_type, duplicates, book_slug)
     return removed
 
 

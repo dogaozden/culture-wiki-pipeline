@@ -15,11 +15,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Culture Wiki")
     parser.add_argument(
         "--stage",
-        choices=["chunk", "extract", "merge", "synthesize", "render", "clean", "all"],
+        choices=["chunk", "extract", "merge", "synthesize", "render", "clean", "all", "image"],
         default="all",
         help="Pipeline stage to run",
     )
     parser.add_argument("--book", help="Process a specific book directory")
+    parser.add_argument("--entity", help="Process a specific entity by name")
     parser.add_argument("--entity-type", help="Process a single entity type")
     parser.add_argument(
         "--force", action="store_true", help="Reprocess even if cached outputs exist"
@@ -78,6 +79,16 @@ def main() -> None:
         help="Gemini model to use (e.g., gemini-2.5-flash-lite, gemini-3-flash-preview). Default: gemini-3-flash-preview",
     )
     parser.add_argument(
+        "--ship-class",
+        help="For image stage: generate test image for a ship class (e.g. GSV)",
+    )
+    parser.add_argument(
+        "--min-citations",
+        type=int,
+        default=10,
+        help="For image stage: minimum citations to consider an entity 'major' (default: 10)",
+    )
+    parser.add_argument(
         "--use-cache",
         action="store_true",
         help="Enable LLM response caching (default: off). Cache is model-specific.",
@@ -96,18 +107,32 @@ def main() -> None:
         config.GEMINI_MODEL = args.model
     
     pipeline = Pipeline()
-    pipeline.run(
-        stage=args.stage,
-        book=args.book,
-        entity_type=args.entity_type,
-        force=args.force,
-        dry_run=args.dry_run,
-        limit=args.limit,
-        clean_targets=args.clean,
-        yes=args.yes,
-        max_retries=args.max_retries,
-        skip_dedup=args.skip_dedup,
-    )
+    pipeline = Pipeline()
+    
+    if args.stage == "image":
+        from src.image_generator import generate_images
+        generate_images(
+            entity_name=args.entity,
+            book_slug=args.book,
+            entity_type=args.entity_type,
+            ship_class=args.ship_class if hasattr(args, "ship_class") else None,
+            min_citations=args.min_citations if hasattr(args, "min_citations") else 10,
+            dry_run=args.dry_run
+        )
+    else:
+        pipeline.run(
+            stage=args.stage,
+            book=args.book,
+            entity_type=args.entity_type,
+            force=args.force,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            clean_targets=args.clean,
+            yes=args.yes,
+            max_retries=args.max_retries,
+            skip_dedup=args.skip_dedup,
+            entity_name=args.entity,
+        )
 
 
 if __name__ == "__main__":
