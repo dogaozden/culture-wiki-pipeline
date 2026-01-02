@@ -267,6 +267,15 @@ At the end of merge, a table shows what each filter stage removed:
 - **Cheaper & Faster:** Reduces output tokens by ~50% (citations were the bulk of the output).
 - **No Token Limits:** Prevents "max output" cutoffs on massive entities like *Sleeper Service*.
 
+> 💡 **Why does chunking run during synthesis?**  
+> The synthesizer builds a `chunk_map` by loading all chapter files. This map is used to:
+> 1. Validate that citation quotes exist in source text
+> 2. Fill citation metadata (`source_file`, chapter info)
+> 3. Look up fact IDs when rebuilding the citations array
+>
+> This adds ~10 seconds of startup overhead. Future optimization could cache the chunk_map or only load chapters for the book being synthesized.
+
+
 ### Fact ID System
 
 **Format:** `{chunk_id}#{sequence}` (e.g., `excession_ch014#003`)
@@ -540,6 +549,12 @@ python3 run.py --stage clean --clean output --yes
    # Merge for a specific book only (creates {entity_type}_{book_slug}.json)
    python3 run.py --stage merge --book surface_detail
    ```
+   
+   > ⚠️ **Note:** If merged entity files already exist (e.g., from a previous run), merge will skip processing. Use `--force` to regenerate:
+   > ```bash
+   > python3 run.py --stage merge --book matter --force
+   > ```
+
 
 3. **Synthesis (API calls)**
    ```bash

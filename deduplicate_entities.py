@@ -185,16 +185,26 @@ def find_alias_facts_llm(client: GeminiClient, entity_type: str, entities: list[
     if not entities:
         return {}
     
-    alias_facts_map = {}
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     
-    # Process in batches
+    alias_facts_map = {}
+    max_retries = 7
+    
+    # Build all batches upfront
+    batches = []
     for i in range(0, len(entities), ALIAS_BATCH_SIZE):
         batch = entities[i:i + ALIAS_BATCH_SIZE]
         batch_num = (i // ALIAS_BATCH_SIZE) + 1
-        total_batches = (len(entities) + ALIAS_BATCH_SIZE - 1) // ALIAS_BATCH_SIZE
-        
-        if total_batches > 1:
-            logger.info("Alias pre-filter: batch %d/%d...", batch_num, total_batches)
+        batches.append((batch_num, batch))
+    
+    total_batches = len(batches)
+    if total_batches > 1:
+        logger.info("Alias pre-filter: processing %d batches in parallel...", total_batches)
+    
+    def process_batch(batch_info: tuple) -> tuple[int, dict, bool]:
+        """Process a single batch. Returns (batch_num, results_dict, success)."""
+        batch_num, batch = batch_info
+        results = {}
         
         # Build prompt with all facts for each entity
         prompt_parts = []
@@ -211,36 +221,58 @@ def find_alias_facts_llm(client: GeminiClient, entity_type: str, entities: list[
             prompt_parts.append(f"**{name}**\n{facts_str}")
         
         if not prompt_parts:
-            continue
+            return (batch_num, {}, True)  # Empty batch is success
         
         prompt = ALIAS_FILTER_PROMPT + "\n\n".join(prompt_parts)
         
-        # Retry up to 3 times on failure
-        for attempt in range(3):
+        # Retry up to max_retries times on failure
+        for attempt in range(max_retries):
             try:
-                response = client.client.models.generate_content(
-                    model=client.model_name,
-                    contents=prompt,
-                    config={
-                        "response_mime_type": "application/json",
-                    }
-                )
+                # Use _generate_json which respects rate limits and has built-in retries
+                result = client._generate_json(prompt)
                 
-                # Parse JSON from response
-                result = json.loads(response.text)
+                # Parse result (already JSON dict from _generate_json)
                 for entity in result.get("entities", []):
                     name = entity.get("name", "")
                     facts = entity.get("alias_facts", [])
                     if name and facts:
-                        alias_facts_map[name.lower()] = facts
-                break  # Success, exit retry loop
+                        results[name.lower()] = facts
+                return (batch_num, results, True)  # Success
             except Exception as e:
-                if attempt < 2:
-                    logger.warning("Alias filter batch %d failed (attempt %d/3): %s. Retrying...", batch_num, attempt + 1, e)
+                if attempt < max_retries - 1:
+                    logger.warning("Alias filter batch %d failed (attempt %d/%d): %s. Retrying...", batch_num, attempt + 1, max_retries, e)
                 else:
-                    logger.warning("Alias filter batch %d failed after 3 attempts: %s", batch_num, e)
+                    logger.warning("Alias filter batch %d failed after %d attempts: %s", batch_num, max_retries, e)
+        
+        return (batch_num, {}, False)  # All retries exhausted
+    
+    # Process batches in parallel
+    failed_batches = []
+    with ThreadPoolExecutor(max_workers=min(8, total_batches)) as executor:
+        futures = {executor.submit(process_batch, batch_info): batch_info for batch_info in batches}
+        
+        for future in as_completed(futures):
+            batch_num, results, success = future.result()
+            if success:
+                alias_facts_map.update(results)
+                if total_batches > 1:
+                    logger.info("Alias pre-filter: batch %d/%d completed", batch_num, total_batches)
+            else:
+                failed_batches.append(futures[future])
+    
+    # Retry failed batches one more time (sequentially, to avoid overwhelming the API)
+    if failed_batches:
+        logger.info("Retrying %d failed batches...", len(failed_batches))
+        for batch_info in failed_batches:
+            batch_num, results, success = process_batch(batch_info)
+            if success:
+                alias_facts_map.update(results)
+                logger.info("Alias pre-filter: batch %d recovered on final retry", batch_num)
+            else:
+                logger.warning("Alias pre-filter: batch %d permanently failed", batch_num)
     
     return alias_facts_map
+
 
 
 def load_entities(entity_type: str, book_slug: str = None) -> list[dict]:

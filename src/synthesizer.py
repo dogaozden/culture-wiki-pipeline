@@ -163,7 +163,8 @@ def _rebuild_citations_from_text(
     """
     # Extract all fact IDs from text
     fact_ids: set[str] = set()
-    pattern = re.compile(r'\[([a-zA-Z0-9_]+#\d{3})\]', re.IGNORECASE)
+    # Pattern allows hyphens in chunk IDs (e.g., Matter_chap-3#019)
+    pattern = re.compile(r'\[([a-zA-Z0-9_\-]+#\d{3})\]', re.IGNORECASE)
     for match in pattern.finditer(text or ""):
         fact_ids.add(match.group(1).lower())
     
