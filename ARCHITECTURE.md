@@ -45,6 +45,7 @@
 > - **Controlled extraction**: `--dry-run` prints the first prompt; `--limit N` caps chapters
 > - **Merge tuning**: `--skip-dedup` skips LLM semantic dedup (faster, less thorough)
 > - **Cleaning outputs**: `--stage clean` + `--clean` targets (use `--yes` to skip confirmation)
+> - **Synthesis time estimator**: `src/estimator.py` reads merged entity JSON files and estimates runtime at a configurable calls/hour rate
 
 **CLI Entry Point (`run.py`)**
 - `--stage`: one of `chunk`, `extract`, `merge`, `synthesize`, `render`, `clean`, `all`, `image`, `cross`.
@@ -60,6 +61,13 @@
 - `read_json()`/`write_json()` handle JSON I/O with `DEFAULT_ENCODING` and pretty output.
 - `utc_now()` returns ISO-8601 UTC timestamps.
 - `rate_limit_sleep()` sleeps until a provided Unix timestamp.
+
+**Gemini Client (`src/gemini_client.py`)**
+- Uses the `google.genai` SDK client with a lightweight wrapper.
+- Enforces structured JSON via response schema for extract/synthesize.
+- Opt-in cache is **model-scoped** (model name is part of the cache path) to avoid cross-model reuse.
+- Rate limiting uses a 60-second sliding window; retries use exponential backoff (tenacity).
+- `preflight()` sends a minimal request once per run to fail fast on API key/model access issues.
 
 ---
 
@@ -175,6 +183,7 @@ Combine all chapter extractions into unified entity lists.
     -   Example: "Veppers" appears 50 times as `character`, 3 times as `ship`.
     -   Action: Removes "Veppers" from `ships` because `characters` is the dominant type.
     -   Prevents cross-contamination (e.g. ship names appearing as locations).
+    -   When running book-scoped merges (`--book`), type voting can be limited to that book’s extractions.
 
 4.  **Automated Alias Verification (NEW)**
     -   Before merging, validates all aliases against source text.
@@ -273,6 +282,7 @@ At the end of merge, a table shows what each filter stage removed:
 4. **Citation Density Gate:**
    - Articles must meet a minimum citation rate (50% of sentences include citations).
    - Low-density articles are retried up to the synthesis retry limit, then skipped.
+   - Retries use a cache-busting key (`{type}:{slug}:retryN`) to avoid Gemini cache hits.
 
 **Why this is better:**
 - **Zero Quote Hallucinations:** The quote always comes from the source file, never the LLM's memory.
@@ -339,6 +349,7 @@ Citation accepted → Build from pre-validated data
 **Book-scoped synthesis behavior:**
 - If a `{type}_{book}.json` file is missing, synthesis falls back to the global `{type}.json` and filters entities by `appears_in` for that book.
 - When `--force` and `--book` are both used, stale article deletion only applies to articles that belong to that book.
+- `--entity` matches either the canonical name or any alias (case-insensitive).
 
 **Output:**  
 `data/articles/{type}/{slug}.json`
