@@ -512,10 +512,13 @@ For each ship found, output:
 - "reason": brief explanation
 
 GUIDELINES:
-1. Ships include: GSVs, GCUs, ROUs, warships, vessels, any named Culture/Affront ships
+1. Ships MUST have ship class prefixes (GSV, GCU, ROU, LOU, etc.) OR be clearly named vessels
 2. Things that CONTAIN ships (like "warship hangars") are NOT ships
 3. "The Sleeper" is the same as "Sleeper Service" - a GSV
-4. Be AGGRESSIVE - if it sounds like a ship name, flag it
+4. IMPORTANT: Long Culture personal names like "Rasd-Codurersa Diziet Embless Sma" are PEOPLE, not ships!
+   - Culture names often have many hyphenated parts - this does NOT make them ships
+   - Names containing "Sma", "Zakalwe", "Genar-Hofoen" are DEFINITELY characters
+5. When in doubt about whether something is a person or ship, do NOT flag it
 
 Output format:
 ```json
@@ -537,6 +540,42 @@ If no ships found:
 
 """
 
+# Patterns that indicate a ship name (for filtering ship reference list)
+SHIP_NAME_INDICATORS = [
+    "gsv", "gcu", "gcv", "rou", "lou", "lcu", "msv", "vfp", "gou",
+    "offensive unit", "contact unit", "systems vehicle", "eccentric",
+]
+
+# Names that should NEVER be treated as ships (major characters)
+PROTECTED_CHARACTER_NAMES = frozenset([
+    "sma", "zakalwe", "genar-hofoen", "gurgeh", "horza", "balveda",
+    "diziet", "cheradenine", "jernau", "bora", "perosteck", "quilan",
+])
+
+def _is_likely_ship_name(name: str) -> bool:
+    """Check if a name is likely a ship (has ship indicators)."""
+    name_lower = name.lower()
+    
+    # Check for protected character names
+    for protected in PROTECTED_CHARACTER_NAMES:
+        if protected in name_lower:
+            return False
+    
+    # Check for ship indicators
+    for indicator in SHIP_NAME_INDICATORS:
+        if indicator in name_lower:
+            return True
+    
+    # Very short names are ambiguous, assume not a ship
+    if len(name) < 15:
+        return True  # Allow through for LLM to check
+    
+    # Very long names without ship indicators are probably people
+    if len(name) > 40:
+        return False
+    
+    return True
+
 
 def find_ships_in_entity_type(client: GeminiClient, source_type: str, book_slug: str = None) -> list[dict]:
     """
@@ -548,9 +587,13 @@ def find_ships_in_entity_type(client: GeminiClient, source_type: str, book_slug:
     if not source_entities:
         return []
     
-    # Load ship names for reference
+    # Load ship names for reference (filter out obvious non-ships like long Culture names)
     ships = load_entities("ships_and_minds", book_slug)
-    ship_names = [s["canonical_name"] for s in ships[:50]]  # Top 50 for prompt
+    # Only include ships that look like actual ships (have ship prefixes or aren't protected names)
+    ship_names = [
+        s["canonical_name"] for s in ships[:100]
+        if _is_likely_ship_name(s["canonical_name"])
+    ][:50]  # Cap at 50 for prompt
     ship_names_str = ", ".join(ship_names)
     
     # Build prompt

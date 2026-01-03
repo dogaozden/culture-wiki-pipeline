@@ -34,6 +34,20 @@ _AUTOLINK_PATTERN: Optional[re.Pattern] = None
 # Map from lowercase entity name -> (display_name, entity_type, slug)
 _AUTOLINK_MAP: Dict[str, tuple] = {}
 
+# Common English words that should never be autolinked (prevents false matches)
+_COMMON_WORDS: Set[str] = set()
+
+
+def _load_common_words() -> Set[str]:
+    """Load common English words to exclude from autolinking."""
+    word_file = config.PROJECT_ROOT / "data" / "common_words.txt"
+    if word_file.exists():
+        words = {w.strip().lower() for w in word_file.read_text().splitlines() if w.strip()}
+        logger.debug("Loaded %d common words for autolink filtering", len(words))
+        return words
+    logger.warning("Common words file not found: %s", word_file)
+    return set()
+
 
 def _autolink_entities(text: str, root_path: str = "", current_entity: str = "") -> Markup:
     """
@@ -672,9 +686,12 @@ def render_apocrypha() -> None:
 
 
 def render_all() -> None:
-    global _ENTITY_LOOKUP, _AUTOLINK_PATTERN, _AUTOLINK_MAP
+    global _ENTITY_LOOKUP, _AUTOLINK_PATTERN, _AUTOLINK_MAP, _COMMON_WORDS
     _copy_assets()
     _copy_crown_jewels()  # Copy manually-crafted articles before loading
+    
+    # Load common words blocklist for autolink filtering
+    _COMMON_WORDS = _load_common_words()
     
     # Load cross-book articles for priority rendering
     # This identifies entities that appear in 2+ books
@@ -711,8 +728,8 @@ def render_all() -> None:
                         _ENTITY_LOOKUP[alias_slug] = (entity_type, article.slug)
                     if alias_lower not in _ENTITY_LOOKUP:
                         _ENTITY_LOOKUP[alias_lower] = (entity_type, article.slug)
-                    # Add to autolink map (skip short aliases)
-                    if len(alias_lower) > 2 and alias_lower not in _AUTOLINK_MAP:
+                    # Add to autolink map (skip short aliases and common words)
+                    if len(alias_lower) > 2 and alias_lower not in _AUTOLINK_MAP and alias_lower not in _COMMON_WORDS:
                         _AUTOLINK_MAP[alias_lower] = (alias, entity_type, article.slug)
     
     logger.info("Built entity lookup with %d entries for cross-linking", len(_ENTITY_LOOKUP))

@@ -125,11 +125,15 @@ def load_chapters(
     book_slug = slugify(book_dir.name)
     book_title = book_dir.name.replace("_", " ").strip()
 
+    def sort_key(f):
+        match = re.search(r"(\d+)", f.stem)
+        if match:
+            return (0, int(match.group(1)))
+        return (1, f.stem)
+
     chapter_files = sorted(
         list(book_dir.glob("*.md")) + list(book_dir.glob("*.html")),
-        key=lambda f: int(re.search(r"(\d+)", f.stem).group(1))
-        if re.search(r"(\d+)", f.stem)
-        else f.stem,
+        key=sort_key,
     )
 
     chapters: List[Chapter] = []

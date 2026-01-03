@@ -43,11 +43,11 @@ def build_type_voting_map(book_slug: Optional[str] = None) -> Dict[str, Counter]
                 try:
                     extraction = EntityExtraction(**read_json(path))
                     
-                    # Filter by book if specified
+                    # Filter by book if specified - use book directory name, not chunk_id
                     if book_slug:
-                        chunk_id = extraction.chunk_id.lower().replace("-", "_")
-                        normalized_book = book_slug.lower().replace("-", "_")
-                        if not chunk_id.startswith(normalized_book):
+                        book_dir_slug = slugify(book_dir.name)  # e.g., "use-of-weapons"
+                        normalized_book = slugify(book_slug)    # normalize input
+                        if book_dir_slug != normalized_book:
                             continue
                     
                     for ent in extraction.entities:

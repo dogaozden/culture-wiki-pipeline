@@ -402,7 +402,7 @@ Turn JSON articles into a browseable HTML website.
 - **Apocrypha rendering**: Markdown files in `books/Apocrypha/` are rendered directly to HTML (bypasses the entity extraction pipeline)
 - **Entity images**: If `data/images/{entity_type}/{slug}.png` exists, displays portrait in article header
 - **Renderer details**:
-  - Autolink regex is built from entity names + aliases (skips very short names), links only first mention per text block, and avoids matching inside HTML tags
+  - Autolink regex is built from entity names + aliases (skips very short names and common English words from `data/common_words.txt`), links only first mention per text block, and avoids matching inside HTML tags
   - Entity lookup resolves URLs by slug, canonical name, and aliases (templates can use `entity_link`)
   - Legacy integer citations like `[1,2]` are still supported
   - Search index truncates summaries to 150 chars and caps aliases at 5
@@ -639,7 +639,7 @@ python3 run.py --stage clean --clean output --yes
    python3 run.py --stage merge --book surface_detail
    ```
    
-   > ⚠️ **Note:** If merged entity files already exist (e.g., from a previous run), merge will skip processing. Use `--force` to regenerate:
+   > ⚠️ **Note:** When running a book through the pipeline for the first time, use `--force`.
    > ```bash
    > python3 run.py --stage merge --book matter --force
    > ```
