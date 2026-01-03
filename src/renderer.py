@@ -263,7 +263,7 @@ def _compute_prominence_score(article: Article) -> int:
         name.strip().lower() for name in article.related_entities if name and name.strip()
     }
     cross_reference_count = len(related_set)
-    return unique_chapter_count * 10 + citation_count + cross_reference_count
+    return unique_chapter_count * 5 + citation_count + cross_reference_count
 
 
 def _load_articles(entity_type: str) -> List[Article]:
@@ -279,6 +279,52 @@ def _load_articles(entity_type: str) -> List[Article]:
         key=lambda art: (-art.prominence_score, art.entity_name.lower())
     )
     return articles
+
+
+# Cross-book article lookup: maps (entity_type, slug) -> Article
+_CROSS_BOOK_ARTICLES: Dict[tuple, Article] = {}
+
+
+def _load_cross_book_articles() -> Dict[str, Dict[str, Article]]:
+    """Load all cross-book articles and build lookup by (entity_type, slug).
+    
+    Returns: Dict[entity_type, Dict[slug, Article]]
+    """
+    global _CROSS_BOOK_ARTICLES
+    _CROSS_BOOK_ARTICLES = {}
+    
+    cross_book_map: Dict[str, Dict[str, Article]] = {}
+    
+    for entity_type in config.ENTITY_TYPES:
+        directory = config.ARTICLES_DIR / entity_type
+        if not directory.exists():
+            continue
+        
+        cross_book_map[entity_type] = {}
+        
+        for path in sorted(directory.glob("*.json")):
+            article = Article(**read_json(path))
+            
+            # Only consider articles that appear in 2+ books
+            if len(article.appears_in) >= 2:
+                article.prominence_score = _compute_prominence_score(article)
+                cross_book_map[entity_type][article.slug] = article
+                _CROSS_BOOK_ARTICLES[(entity_type, article.slug)] = article
+    
+    total = sum(len(v) for v in cross_book_map.values())
+    if total > 0:
+        logger.info("Loaded %d cross-book articles for priority rendering", total)
+    
+    return cross_book_map
+
+
+def _get_cross_book_article(entity_type: str, slug: str) -> Optional[Article]:
+    """Get the cross-book version of an article if it exists.
+    
+    Returns the cross-book Article if the entity appears in 2+ books,
+    otherwise returns None.
+    """
+    return _CROSS_BOOK_ARTICLES.get((entity_type, slug))
 
 
 def render_articles(entity_type: str) -> List[Article]:
@@ -491,29 +537,70 @@ def render_book_type_index(book: Dict, entity_type: str, articles: List[Article]
 
 
 def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) -> None:
-    """Render individual article pages within a book's section."""
+    """Render individual article pages within a book's section.
+    
+    Cross-book priority: If an entity appears in 2+ books, render the cross-book
+    article (with citations from all books) to the main path. The book-only
+    version is still rendered to _book-only/ for debugging.
+    """
     env = _env()
     template = env.get_template("article.html")
     book_slug = book["slug"]
     book_arts = _filter_articles_by_book(articles, book_slug)
     
     output_dir = ensure_dir(config.WIKI_DIR / "books" / book_slug / entity_type)
+    # Debug folder for book-only versions
+    debug_dir = ensure_dir(output_dir / "_book-only")
     
     for article in book_arts:
         out_path = output_dir / f"{article.slug}.html"
-        # Build citation_map for numbered display
-        citation_map = _build_citation_map(article.citations)
-        html = template.render(
-            title=article.entity_name,
-            article=article,
-            entity_type=entity_type,
-            root_path=_root_path_for(out_path),
-            citation_map=citation_map,
-            citations_json=json.dumps(
-                [c.model_dump() for c in article.citations], ensure_ascii=False
-            ),
-        )
-        out_path.write_text(html, encoding="utf-8")
+        
+        # Check if there's a cross-book version of this article
+        cross_book_article = _get_cross_book_article(entity_type, article.slug)
+        
+        if cross_book_article:
+            # Cross-book priority: render cross-book version to main path
+            citation_map = _build_citation_map(cross_book_article.citations)
+            html = template.render(
+                title=cross_book_article.entity_name,
+                article=cross_book_article,
+                entity_type=entity_type,
+                root_path=_root_path_for(out_path),
+                citation_map=citation_map,
+                citations_json=json.dumps(
+                    [c.model_dump() for c in cross_book_article.citations], ensure_ascii=False
+                ),
+            )
+            out_path.write_text(html, encoding="utf-8")
+            
+            # Also render book-only version to debug folder
+            debug_path = debug_dir / f"{article.slug}.html"
+            citation_map = _build_citation_map(article.citations)
+            html_debug = template.render(
+                title=article.entity_name,
+                article=article,
+                entity_type=entity_type,
+                root_path=_root_path_for(debug_path),
+                citation_map=citation_map,
+                citations_json=json.dumps(
+                    [c.model_dump() for c in article.citations], ensure_ascii=False
+                ),
+            )
+            debug_path.write_text(html_debug, encoding="utf-8")
+        else:
+            # No cross-book version: render normally
+            citation_map = _build_citation_map(article.citations)
+            html = template.render(
+                title=article.entity_name,
+                article=article,
+                entity_type=entity_type,
+                root_path=_root_path_for(out_path),
+                citation_map=citation_map,
+                citations_json=json.dumps(
+                    [c.model_dump() for c in article.citations], ensure_ascii=False
+                ),
+            )
+            out_path.write_text(html, encoding="utf-8")
 
 
 def render_apocrypha() -> None:
@@ -588,6 +675,10 @@ def render_all() -> None:
     global _ENTITY_LOOKUP, _AUTOLINK_PATTERN, _AUTOLINK_MAP
     _copy_assets()
     _copy_crown_jewels()  # Copy manually-crafted articles before loading
+    
+    # Load cross-book articles for priority rendering
+    # This identifies entities that appear in 2+ books
+    _load_cross_book_articles()
     
     # First pass: Load all articles and build the global entity lookup
     # This must happen BEFORE rendering so cross-entity links can be resolved

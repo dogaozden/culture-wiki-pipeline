@@ -110,16 +110,40 @@ def _get_missing_citation_tolerance(fact_count: int) -> int:
     else:
         return 0  # Small entities must have perfect citations
 
-def _load_extractions(entity_type: str) -> List[EntityExtraction]:
+def _load_extractions(entity_type: str, book_slug: str = None) -> List[EntityExtraction]:
+    """Load extractions for an entity type, optionally filtered by book.
+    
+    Args:
+        entity_type: The entity type to load (e.g., 'factions')
+        book_slug: If provided, only load extractions from this book's folder.
+                   Special value "cross-book" loads ALL books (for cross-book synthesis).
+    """
     base_dir = config.EXTRACTIONS_DIR / entity_type
     extractions: List[EntityExtraction] = []
     if not base_dir.exists():
         return extractions
+    
+    # Special case: "cross-book" means load from ALL books
+    load_all = book_slug == "cross-book"
+    
     for book_dir in base_dir.iterdir():
         if not book_dir.is_dir():
             continue
+        
+        # Filter by book if specified (unless loading all for cross-book)
+        if book_slug and not load_all:
+            # Normalize both slugs for comparison (handle hyphens vs underscores)
+            dir_slug = book_dir.name.lower().replace("_", "-")
+            target_slug = book_slug.lower().replace("_", "-")
+            if dir_slug != target_slug:
+                continue  # Skip this book's extractions
+        
         for path in book_dir.glob("*.json"):
             extractions.append(EntityExtraction(**read_json(path)))
+    
+    if book_slug:
+        logger.info("Loaded %d extractions for %s (book: %s)", len(extractions), entity_type, book_slug)
+    
     return extractions
 
 
@@ -433,13 +457,31 @@ CRITICAL:
 - Output ONLY the JSON object, no markdown code fences or other text"""
 
 
-def _build_chunk_context_map() -> Dict[str, Chapter]:
+def _build_chunk_context_map(book_slug: str = None) -> Dict[str, Chapter]:
+    """Build a map of chunk_id -> Chapter for context lookup.
+    
+    Args:
+        book_slug: If provided, only load chapters from this book (faster).
+                   Special value "cross-book" loads ALL books.
+    """
     chunk_map: Dict[str, Chapter] = {}
     if not config.BOOKS_DIR.exists():
         return chunk_map
+    
+    # Special case: "cross-book" means load from ALL books
+    load_all = book_slug == "cross-book"
+    
     for book_dir in config.BOOKS_DIR.iterdir():
         if not book_dir.is_dir() or book_dir.name.startswith("."):
             continue
+        
+        # Filter by book if specified (unless loading all for cross-book)
+        if book_slug and not load_all:
+            dir_slug = slugify(book_dir.name)
+            target_slug = book_slug.lower().replace("_", "-")
+            if dir_slug != target_slug:
+                continue  # Skip this book
+        
         try:
             chapters = load_chapters(book_dir)
         except Exception as exc:
@@ -499,8 +541,9 @@ def synthesize_articles(
         merged_entities = filtered
         logger.info("Filtered entities by name '%s': %d matched", entity_name, len(merged_entities))
     
-    extractions = _load_extractions(entity_type)
-    chunk_map = _build_chunk_context_map()
+    # Load extractions - filter by book if specified for proper isolation
+    extractions = _load_extractions(entity_type, book_slug=book_slug)
+    chunk_map = _build_chunk_context_map(book_slug=book_slug)
     fact_lookup = _build_fact_lookup(extractions)  # For Python citation rebuild
     output_dir = config.ARTICLES_DIR / entity_type
     output_dir.mkdir(parents=True, exist_ok=True)

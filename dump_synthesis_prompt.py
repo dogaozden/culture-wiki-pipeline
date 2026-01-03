@@ -38,17 +38,39 @@ def main():
         help="Entity type (default: ships_and_minds)",
     )
     parser.add_argument(
+        "--book",
+        help="Book slug (e.g., 'consider-phlebas') to use book-specific entity file",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         help="Output file (default: stdout)",
     )
     args = parser.parse_args()
 
-    # Load merged entities
-    entities_path = config.ENTITIES_DIR / f"{args.entity_type}.json"
-    if not entities_path.exists():
-        print(f"Error: {entities_path} not found. Run merge stage first.", file=sys.stderr)
-        sys.exit(1)
+    # Load merged entities - try book-specific file first if --book is provided
+    if args.book:
+        book_slug = args.book.lower().replace(" ", "-")
+        entities_path = config.ENTITIES_DIR / f"{args.entity_type}_{book_slug}.json"
+        if not entities_path.exists():
+            print(f"Error: Book-specific file {entities_path} not found.", file=sys.stderr)
+            print(f"Available files:", file=sys.stderr)
+            for f in config.ENTITIES_DIR.glob(f"{args.entity_type}_*.json"):
+                print(f"  - {f.name}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        entities_path = config.ENTITIES_DIR / f"{args.entity_type}.json"
+        if not entities_path.exists():
+            # Try to find any book-specific file
+            book_files = list(config.ENTITIES_DIR.glob(f"{args.entity_type}_*.json"))
+            if book_files:
+                print(f"Error: {entities_path} not found.", file=sys.stderr)
+                print(f"Use --book to specify a book. Available:", file=sys.stderr)
+                for f in book_files:
+                    print(f"  --book {f.stem.replace(args.entity_type + '_', '')}", file=sys.stderr)
+                sys.exit(1)
+            print(f"Error: {entities_path} not found. Run merge stage first.", file=sys.stderr)
+            sys.exit(1)
 
     entities_data = read_json(entities_path)
     merged_entity = None
@@ -75,8 +97,9 @@ def main():
             print(f"  ... and {len(entities_data['entities']) - 20} more", file=sys.stderr)
         sys.exit(1)
 
-    # Load extractions and chunk map
-    extractions = _load_extractions(args.entity_type)
+    # Load extractions and chunk map - filter by book if specified
+    book_slug = args.book.lower().replace(" ", "-") if args.book else None
+    extractions = _load_extractions(args.entity_type, book_slug=book_slug)
     chunk_map = _build_chunk_context_map()
 
     # Get matching extractions for this entity

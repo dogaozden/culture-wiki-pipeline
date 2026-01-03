@@ -15,7 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Culture Wiki")
     parser.add_argument(
         "--stage",
-        choices=["chunk", "extract", "merge", "synthesize", "render", "clean", "all", "image"],
+        choices=["chunk", "extract", "merge", "synthesize", "render", "clean", "all", "image", "cross"],
         default="all",
         help="Pipeline stage to run",
     )

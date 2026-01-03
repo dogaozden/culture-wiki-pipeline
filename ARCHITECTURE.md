@@ -11,11 +11,11 @@
 │    CHUNK    │ →  │   EXTRACT   │ →  │    MERGE    │ →  │  SYNTHESIZE │ →  │   RENDER    │
 │ (split text)│    │(per chapter)│    │ (combine)   │    │ (write)     │    │ (HTML)      │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                                                ↓
-                                                         ┌─────────────┐
-                                                         │    IMAGE    │ (optional)
-                                                         │ (portraits) │
-                                                         └─────────────┘
+                                             ↓                   ↓
+                                      ┌─────────────┐     ┌─────────────┐
+                                      │    CROSS    │     │    IMAGE    │ (optional)
+                                      │(multi-book) │     │ (portraits) │
+                                      └─────────────┘     └─────────────┘
 ```
 
 **Pipeline Orchestration (`src/pipeline.py`)**
@@ -47,11 +47,19 @@
 > - **Cleaning outputs**: `--stage clean` + `--clean` targets (use `--yes` to skip confirmation)
 
 **CLI Entry Point (`run.py`)**
-- `--stage`: one of `chunk`, `extract`, `merge`, `synthesize`, `render`, `clean`, `all`, `image`.
+- `--stage`: one of `chunk`, `extract`, `merge`, `synthesize`, `render`, `clean`, `all`, `image`, `cross`.
 - `--force`: reprocess even if cached outputs exist (does not bypass the Gemini cache).
 - `--entity-type`: restricts work to a single entity type for extract/merge/synthesize/image.
 - `--use-cache`: enable the Gemini response cache (off by default).
 - `--clean`: one or more targets (`all`, `cache`, `extractions`, `entities`, `articles`, `wiki`, `chunks`, `output`).
+
+**Utility Helpers (`src/utils.py`)**
+- `ensure_dir()` creates directories (with parents) when needed.
+- `slugify()` normalizes strings for filesystem-safe names.
+- `count_tokens()` uses tiktoken if available, otherwise a word-count fallback.
+- `read_json()`/`write_json()` handle JSON I/O with `DEFAULT_ENCODING` and pretty output.
+- `utc_now()` returns ISO-8601 UTC timestamps.
+- `rate_limit_sleep()` sleeps until a provided Unix timestamp.
 
 ---
 
@@ -108,16 +116,20 @@ For each entity found:
 
 After getting LLM response, we run deterministic code to:
 
-1. **Validate quotes** — Check each quote exists in source text
+1. **Validate entity names** — Skip entities whose primary `name` does not appear in the source text
+   - Case-insensitive match after normalizing quotes/ellipses and collapsing whitespace
+   - Logged as warnings to surface hallucinated entities
+
+2. **Validate quotes** — Check each quote exists in source text
    - Rejects hallucinated quotes before saving
    - Logged as warnings for debugging
 
-2.  **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
+3.  **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
     -   Example: `excession_ch014#003` = 3rd fact from chapter 14
     -   IDs are stable across re-runs (deterministic)
     -   Used by synthesis for citation validation
 
-3.  **Filter aliases against source text** — Drop aliases that do not appear verbatim in the chapter
+4.  **Filter aliases against source text** — Drop aliases that do not appear verbatim in the chapter
     -   Case-insensitive match after normalizing quotes/ellipses and collapsing whitespace
     -   Logged as warnings to surface hallucinated aliases
 
@@ -378,6 +390,14 @@ Turn JSON articles into a browseable HTML website.
 - Prominence-based sorting (computed at render time from chapter coverage + citation + cross-reference counts)
 - **Apocrypha rendering**: Markdown files in `books/Apocrypha/` are rendered directly to HTML (bypasses the entity extraction pipeline)
 - **Entity images**: If `data/images/{entity_type}/{slug}.png` exists, displays portrait in article header
+- **Renderer details**:
+  - Autolink regex is built from entity names + aliases (skips very short names), links only first mention per text block, and avoids matching inside HTML tags
+  - Entity lookup resolves URLs by slug, canonical name, and aliases (templates can use `entity_link`)
+  - Legacy integer citations like `[1,2]` are still supported
+  - Search index truncates summaries to 150 chars and caps aliases at 5
+  - Graph data uses `related_entities` to emit edges; nodes include `type`, `url`, `prominence`, and `books`
+  - Book rendering writes `wiki/index.html` plus per-book indexes and `_book-only/` debug pages; falls back to `wiki/old_index.html` if no books
+  - Crown jewel overrides require `entity_type` in JSON and are copied before rendering
 
 ---
 
@@ -436,6 +456,64 @@ python3 run.py --stage image --entity "Dajeil Gelian" --dry-run
 
 **Output:**  
 `data/images/{entity_type}/{slug}.png` → Copied to `wiki/images/` during render
+
+---
+
+## Stage 6: CROSS-BOOK 🔗
+
+**What happens:**  
+Find entities appearing in multiple books and create unified articles with facts from all appearances.
+
+**The process:**
+
+1. **Find cross-book entities** (`--stage cross`)
+   - Scans all `{entity_type}_{book}.json` files
+   - Matches on canonical name (case-insensitive)
+   - Collects aliases but **does not use them for matching yet** (future LLM validation)
+   - `GENERIC_ALIAS_BLACKLIST` only gates which aliases are considered valid
+   - Only entities in 2+ books qualify
+   - Book slugs outside the publication list are included after the ordered set
+
+2. **Merge entity data**
+   - Combines `extraction_refs`, `aliases`, `information[]` from all books
+   - Orders by publication date (Consider Phlebas 1987 → Hydrogen Sonata 2012)
+   - Deduplicates facts by fact_id
+   - Uses the first book in publication order as the base entity
+   - Copies extra fields from the base entity when present (`species`, `affiliation`, `class`, `type`, `status`, `category`)
+   - Outputs are sorted by number of books in `appears_in` (descending)
+
+3. **Synthesize cross-book articles** (`--book cross-book`)
+   - Loads extractions from ALL books
+   - Creates unified articles with multi-book citations
+
+4. **Render with priority** (automatic)
+   - If entity appears in 2+ books, cross-book article is rendered to main path
+   - Book-only version goes to `_book-only/` subfolder for debugging
+
+**Example workflow:**
+```bash
+# Step 1: Merge cross-book entities
+python3 run.py --stage cross --force
+
+# Step 2: Synthesize cross-book articles
+python3 run.py --stage synthesize --book cross-book
+
+# Step 3: Render (cross-book priority automatic)
+python3 run.py --stage render
+```
+
+**Output files:**
+- `data/entities/{type}_cross-book.json` — Merged entity data
+- `data/articles/{type}/*.json` — Articles with `appears_in: ["book1", "book2", ...]`
+- `wiki/books/{book}/{type}/_book-only/*.html` — Debug versions
+
+**Generic Alias Blacklist:**  
+These aliases are ignored during cross-book matching to prevent false merges:
+- "the woman", "the man", "the human", "the drone", "the ship"
+- "he", "she", "they", "the captain", "the ambassador"
+- Numbers: "one", "two", "three"
+
+**Code:** `src/cross_book_merger.py`
 
 ---
 

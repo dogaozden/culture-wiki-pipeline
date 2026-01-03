@@ -65,7 +65,7 @@ class Pipeline:
         skip_dedup: bool = False,
         entity_name: Optional[str] = None,
     ) -> None:
-        stages = ["chunk", "extract", "merge", "synthesize", "render", "clean"]
+        stages = ["chunk", "extract", "merge", "synthesize", "render", "clean", "cross"]
         if stage != "all" and stage not in stages:
             raise ValueError(f"Unknown stage '{stage}'")
 
@@ -89,6 +89,8 @@ class Pipeline:
             self.synthesize(entity_type=entity_type, force=force, max_retries=max_retries, book=book, entity_name=entity_name)
         if stage in ("render", "all"):
             self.render()
+        if stage == "cross":
+            self.cross_book_merge(entity_type=entity_type, force=force)
 
     def chunk(self, book: Optional[str] = None, force: bool = False) -> None:
         for book_dir in self._resolve_books(book):
@@ -303,6 +305,17 @@ class Pipeline:
             for idx, et in enumerate(types, 1):
                 logger.info("=== Synthesizing %d/%d: %s ===", idx, len(types), et)
                 synthesize_articles(et, client, force=force, max_retries=max_retries, book_slug=book_slug, entity_name=entity_name)
+
+    def cross_book_merge(self, entity_type: Optional[str] = None, force: bool = False) -> None:
+        """Find and merge entities appearing in multiple books."""
+        from .cross_book_merger import run_cross_book_merge
+        
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("CROSS-BOOK MERGE")
+        logger.info("=" * 80)
+        
+        run_cross_book_merge(entity_type=entity_type, force=force)
 
     def render(self) -> None:
         from .renderer import render_all

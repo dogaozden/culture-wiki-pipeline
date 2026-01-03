@@ -252,11 +252,11 @@ If none found: {"entities": []}""",
     "factions": """Extract all FACTIONS, CIVILIZATIONS, and ORGANIZATIONS mentioned in this chapter.
 
 Include:
-- The Culture and its divisions (Contact, Special Circumstances, etc.)
-- Other civilizations (Affront, Chelgrians, Idirans, Homomda, Elench, etc.)
-- Political groups, religious organizations
-- Informal groups ("the Interesting Times Gang")
-- Equiv-tech civs, hegemonizing swarms, sublimed entities
+- The Culture and its divisions (Contact, Special Circumstances, etc. — ONLY if explicitly mentioned in THIS text)
+- Other civilizations (Affront, Chelgrians, Idirans, Homomda, Elench, etc. — ONLY if explicitly mentioned in THIS text)
+- Political groups, religious organizations (ONLY if explicitly mentioned in THIS text)
+- Informal groups (e.g. "the Interesting Times Gang" — ONLY if explicitly mentioned in THIS text)
+- Equiv-tech civs, hegemonizing swarms, sublimed entities (ONLY if explicitly mentioned in THIS text)
 
 For each faction provide:
 - name: Primary name
@@ -312,9 +312,9 @@ CRITICAL: Events are OCCURRENCES, not entities. Do NOT extract:
 - Technology/devices — use "technology" extraction for those
 
 Events ARE things that HAPPENED. Look for:
-- Named wars or conflicts (Idiran War, Twin Novae Battle)
+- Named wars or conflicts (e.g. "Idiran War", "Twin Novae Battle" — ONLY if the name appears in THIS text)
 - Named missions or operations with specific names
-- Historical incidents given titles (The Subliming, The Schism)
+- Historical incidents given titles (e.g. "The Subliming" — ONLY if explicitly named in THIS text)
 - Specific battles or encounters with identifiable names
 - Major plot events that characters refer to by name
 
@@ -442,6 +442,23 @@ def _write_extraction(
     validated_entities = []
     
     for ent_data in payload.get("entities", []):
+        # ===================================================================
+        # ENTITY NAME VERIFICATION: Reject entities not mentioned in source
+        # ===================================================================
+        entity_name = ent_data.get("name", "").strip()
+        if not entity_name:
+            continue  # Skip nameless entities
+        
+        # Check if entity name appears in source text (case-insensitive)
+        if not _normalize_for_match(entity_name.lower()) in _normalize_for_match(chunk.text.lower()):
+            logger.warning(
+                "Hallucinated entity in %s (%s): '%s' not found in source text — skipping",
+                chunk.chunk_id,
+                entity_type,
+                entity_name,
+            )
+            continue  # Skip this entire entity
+        
         validated_infos = []
         
         for info in ent_data.get("information", []):
