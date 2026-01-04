@@ -69,6 +69,13 @@
 - Rate limiting uses a 60-second sliding window; retries use exponential backoff (tenacity).
 - `preflight()` sends a minimal request once per run to fail fast on API key/model access issues.
 
+**Epub Conversion Helper (`convert_epubs.py`)**
+- One-off utility to unpack `.epub` files and move chapter `.html`/`.xhtml` files into each book folder.
+- Extracts each epub into a `temp_extracted/` directory, skips `toc.html`/`nav.html`/`content.opf`/`toc.ncx`, avoids overwriting existing files, and cleans up the temp directory.
+
+**Epub Inspection Utility (`inspect_epubs.py`)**
+- Debug helper that extracts selected `.epub` files into `temp_epub_extract/` and lists discovered `.html`/`.xhtml` files for quick inspection.
+
 ---
 
 ## Stage 0: CHUNK 📄
@@ -81,6 +88,8 @@ Split book markdown files into processable chunks that fit within token limits.
 2. **Split by scene breaks** — Uses `***` or `---` separators first
 3. **Split by paragraphs** — Falls back to paragraph splitting if no scene breaks
 4. **Token limit check** — Each chunk stays under `MAX_CHAPTER_TOKENS` (10,000)
+5. **Title + ordering rules** — Chapter titles come from the first H1 (`# Title`) or first non-empty line, and files are sorted by the first number in the filename stem (fallback: lexicographic)
+6. **Oversize segment handling** — If a single segment still exceeds the token limit, it is split again by paragraphs; if still too large, it is split by length as a last resort
 
 **When to use:**  
 If your book has very long chapters that exceed the token limit, run chunk first:
@@ -131,6 +140,11 @@ After getting LLM response, we run deterministic code to:
 2. **Validate quotes** — Check each quote exists in source text
    - Rejects hallucinated quotes before saving
    - Logged as warnings for debugging
+
+2.5 **Fuzzy quote repair** — Attempts to salvage near-miss quotes with a best-match search
+   - Uses a SequenceMatcher-based substring search on normalized text
+   - Default similarity threshold: 0.82; logs repairs with match percentage
+   - Prevents losing valid facts when the LLM drops/changes a few words
 
 3.  **Assign Fact IDs** — Each fact gets unique ID: `{chunk_id}#{seq}`
     -   Example: `excession_ch014#003` = 3rd fact from chapter 14
@@ -207,6 +221,7 @@ Combine all chapter extractions into unified entity lists.
     -   Alias pre-filter resolves each entity's `extraction_refs` to extraction JSON and scans facts for the entity name + aliases (caps facts per entity)
     -   Applied dedup keeps the canonical entity and appends deleted names as aliases
     -   Cross-entity dedup prompt includes a ship name reference list to remove leaked ships from other types
+    -   Ship reference list is filtered with ship-name indicators and a protected character-name list to avoid feeding obvious people into the ship prompt (very long names without indicators are excluded)
 
 > 🏗️ **Two-Pass Architecture**
 > 

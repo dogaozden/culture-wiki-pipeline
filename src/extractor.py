@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from pathlib import Path
@@ -434,6 +435,110 @@ def _quote_in_text(quote: str, text: str) -> bool:
     return _normalize_for_match(quote) in _normalize_for_match(text)
 
 
+# Minimum similarity ratio for fuzzy quote repair (0.0 to 1.0)
+# Minimum similarity ratio for fuzzy quote repair (0.0 to 1.0)
+QUOTE_REPAIR_THRESHOLD = 0.82
+
+
+def _find_best_match(query: str, source: str, min_ratio: float = QUOTE_REPAIR_THRESHOLD) -> tuple[str | None, float]:
+    """Find the best matching substring for a query in source text.
+    
+    Optimized: Uses targeted search near occurrences of the first few words + early exit.
+    Returns (matched_text, similarity_ratio) if found above threshold.
+    """
+    query_norm = _normalize_for_match(query)
+    source_norm = _normalize_for_match(source)
+    query_words = query_norm.split()
+    source_words = source_norm.split()
+    
+    if len(query_words) < 5:
+        return None, 0.0  # Too short to match reliably
+    
+    best_match_words = None
+    best_ratio = 0.0
+    best_start = 0
+    best_end = 0
+    
+    # Heuristic: Identify candidate start positions
+    # Look for occurrences of ANY of the first 3 significant words to be robust against start-of-quote errors
+    candidate_starts = set()
+    
+    # Try first 3 words (skipping very short ones unless they're all we have)
+    check_words = []
+    for w in query_words[:3]:
+        if len(w) > 3:
+            check_words.append(w.lower())
+    
+    # If no long words in first 3, just use the first word
+    if not check_words:
+        check_words.append(query_words[0].lower())
+        
+    for check_word in check_words:
+        # Simple optimization: check first 4 chars
+        check_prefix = check_word[:4]
+        for i, w in enumerate(source_words):
+            if w.lower().startswith(check_prefix):
+                # If we matched the 2nd or 3rd word, offset start index back
+                # This is approximate, but helps find the true start
+                candidate_starts.add(max(0, i - 2)) 
+                candidate_starts.add(i)
+
+    # Sort and convert to list
+    sorted_candidates = sorted(list(candidate_starts))
+    
+    # If no candidate starts found, or list is empty, fall back to dense sampling
+    if not sorted_candidates:
+        # Fallback: Check every 10th word (denser than previous 20)
+        sorted_candidates = list(range(0, len(source_words), 10))
+    
+    # Window sizes to try
+    window_sizes = [
+        max(5, len(query_words) - 5),
+        len(query_words),
+        len(query_words) + 5,
+    ]
+    
+    for window_size in window_sizes:
+        if window_size < 5 or window_size > len(source_words):
+            continue
+        for start in sorted_candidates:
+            # Check a small range around the candidate start
+            for offset in [-3, -2, -1, 0, 1, 2, 3]:
+                i = start + offset
+                if i < 0 or i + window_size > len(source_words):
+                    continue
+                candidate = " ".join(source_words[i:i + window_size])
+                
+                # Turn off auto-junk heuristic for speed
+                matcher = SequenceMatcher(None, query_norm, candidate, autojunk=False)
+                
+                # Quick check
+                if matcher.quick_ratio() < min_ratio:
+                    continue
+                    
+                ratio = matcher.ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_start = i
+                    best_end = i + window_size
+                    best_match_words = source_words[best_start:best_end]
+                    
+                    if best_ratio >= 0.95:
+                        break
+            if best_ratio >= 0.95:
+                break
+        if best_ratio >= 0.95:
+            break
+    
+    if best_ratio >= min_ratio and best_match_words:
+        original_words = source.split()
+        if best_end <= len(original_words):
+            matched_text = " ".join(original_words[best_start:best_end])
+            return matched_text, best_ratio
+    
+    return None, 0.0
+
+
 def _write_extraction(
     chunk: Chapter, entity_type: str, output_dir: Path, payload: dict
 ) -> None:
@@ -466,14 +571,27 @@ def _write_extraction(
             
             # Extraction-time validation: reject hallucinated quotes
             if not _quote_in_text(quote, chunk.text):
-                logger.warning(
-                    "Hallucinated quote in %s (%s) for entity '%s': %.50s...",
-                    chunk.chunk_id,
-                    entity_type,
-                    ent_data.get("name", "Unknown"),
-                    quote,
-                )
-                continue  # Skip this fact
+                # Attempt fuzzy repair before rejecting
+                repaired_quote, similarity = _find_best_match(quote, chunk.text)
+                if repaired_quote:
+                    logger.info(
+                        "Repaired quote in %s (%s) for entity '%s' (%.0f%% match): %.50s...",
+                        chunk.chunk_id,
+                        entity_type,
+                        ent_data.get("name", "Unknown"),
+                        similarity * 100,
+                        repaired_quote,
+                    )
+                    info["quote"] = repaired_quote
+                else:
+                    logger.warning(
+                        "Hallucinated quote in %s (%s) for entity '%s': %.50s...",
+                        chunk.chunk_id,
+                        entity_type,
+                        ent_data.get("name", "Unknown"),
+                        quote,
+                    )
+                    continue  # Skip this fact
             
             # Assign fact ID using source filename for easy verification: {source_file}#{seq}
             # e.g., "Excession_split_006#003" maps to books/excession/Excession_split_006.md
