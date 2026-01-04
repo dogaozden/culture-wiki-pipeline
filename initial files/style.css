@@ -24,7 +24,7 @@
 
     /* Layout */
     --sidebar-width: 260px;
-    --content-max-width: 800px;
+    --content-max-width: 900px;
     --border-radius: 4px;
 
     /* Transitions */
@@ -146,7 +146,8 @@ body {
     flex: 1;
     margin-left: var(--sidebar-width);
     padding: var(--space-2xl) var(--space-xl);
-    max-width: calc(var(--content-max-width) + var(--space-xl) * 2 + var(--sidebar-width));
+    /* Max width allows for portrait sidebar */
+    max-width: calc(var(--content-max-width) + 450px + var(--space-xl) * 3 + var(--sidebar-width));
 }
 
 
@@ -347,6 +348,73 @@ body {
     margin-bottom: var(--space-xl);
     padding-left: var(--space-md);
     border-left: 3px solid var(--color-accent);
+}
+
+
+/* --------------------------------------------------------------------------
+   Article Two-Column Layout (Portrait Sidebar)
+   -------------------------------------------------------------------------- */
+
+/* Article with portrait - use relative positioning for the sidebar */
+.wiki-article.has-portrait {
+    position: relative;
+}
+
+/* Sidebar floats in the right margin area - doesn't affect text width */
+.article-sidebar {
+    position: absolute;
+    right: -480px;
+    top: 0;
+    width: 450px;
+}
+
+/* Main content stays full width */
+.article-main {
+    max-width: var(--content-max-width);
+}
+
+/* Portrait box styling */
+.article-portrait {
+    position: sticky;
+    top: var(--space-xl);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: var(--space-md);
+    box-shadow: var(--shadow-md);
+}
+
+.entity-image {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: calc(var(--border-radius) - 2px);
+}
+
+.portrait-caption {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-align: center;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--color-border-subtle);
+    margin-top: var(--space-sm);
+}
+
+/* Responsive: hide sidebar on smaller screens, show portrait inline */
+@media (max-width: 1400px) {
+    .article-sidebar {
+        position: static;
+        width: auto;
+        margin-bottom: var(--space-xl);
+    }
+
+    .article-portrait {
+        position: static;
+        max-width: 400px;
+        margin: 0 auto;
+    }
 }
 
 

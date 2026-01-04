@@ -3,102 +3,108 @@
 {% block title %}{{ article.entity_name }}{% endblock %}
 
 {% block content %}
-<article class="wiki-article">
-    <header class="article-header">
-        {% if image_path %}
+<article class="wiki-article{% if image_path %} has-portrait{% endif %}">
+    {% if image_path %}
+    <aside class="article-sidebar">
         <div class="article-portrait">
-            <img src="{{ root_path }}/{{ image_path }}" alt="Portrait of {{ article.entity_name }}"
-                class="entity-image">
+            <img src="{{ root_path }}{{ image_path }}" alt="Portrait of {{ article.entity_name }}" class="entity-image">
+            <div class="portrait-caption">{{ article.entity_name }}</div>
         </div>
-        {% endif %}
-        <span class="article-type-badge">{{ article.entity_type.replace('_', ' ') | title }}</span>
-        <h1 class="article-title">{{ article.entity_name }}</h1>
-
-        {% if article.aliases %}
-        <p class="article-aliases">
-            Also known as:
-            {% for alias in article.aliases %}
-            <span class="alias">{{ alias }}</span>{% if not loop.last %}, {% endif %}
-            {% endfor %}
-        </p>
-        {% endif %}
-
-        {% if article.appears_in %}
-        <p class="article-appearances">
-            Appears in:
-            {% for book in article.appears_in %}
-            <span class="book-tag">{{ book }}</span>
-            {% endfor %}
-        </p>
-        {% endif %}
-    </header>
-
-    {% if article.summary %}
-    <p class="article-summary">{{ article.summary | citations(citation_map) | autolink(root_path, article.entity_name)
-        }}</p>
+    </aside>
     {% endif %}
 
-    {% if article.sections %}
-    <div class="article-toc">
-        <div class="toc-title">In this article</div>
-        <ul class="toc-list">
-            {% for section in article.sections %}
-            <li><a href="#section-{{ loop.index }}">{{ section.title }}</a></li>
-            {% endfor %}
-        </ul>
-    </div>
+    <div class="article-main">
+        <header class="article-header">
+            <span class="article-type-badge">{{ article.entity_type.replace('_', ' ') | title }}</span>
+            <h1 class="article-title">{{ article.entity_name }}</h1>
 
-    {% for section in article.sections %}
-    <section id="section-{{ loop.index }}" class="article-section">
-        <h2>{{ section.title }}</h2>
-        <div class="section-content">
-            {{ section.content | citations(citation_map) | autolink(root_path, article.entity_name) }}
-        </div>
-    </section>
-    {% endfor %}
-    {% endif %}
-
-    {% if article.citations %}
-    <section class="article-references">
-        <h2>References</h2>
-        <ul class="references-list">
-            {% for citation in article.citations %}
-            <li id="cite-{{ citation.id | string | lower | replace('#', '-') }}" class="reference-item">
-                <span class="reference-number">[{{ loop.index }}]</span>
-                <div class="reference-book">
-                    {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
-                </div>
-                <div class="reference-quote">"{{ citation.quote }}"</div>
-                <div class="reference-meta">
-                    Source:
-                    {% if citation.source_file %}{{ citation.source_file }}; {% endif %}
-                    <code>{{ citation.id }}</code>;
-                    {{ citation.chunk_id }}
-                </div>
-            </li>
-            {% endfor %}
-        </ul>
-    </section>
-    {% endif %}
-
-    {% if article.related_entities %}
-    <div class="related">
-        <div class="related-title">Related</div>
-        <div class="related-list">
-            {% for related in article.related_entities %}
-            {% set link = related | entity_link(root_path) %}
-            {% if link %}
-            <a class="related-link" href="{{ link }}">{{ related }}</a>
-            {% else %}
-            <span class="related-unlinked" title="No article found">{{ related }}</span>
+            {% if article.aliases %}
+            <p class="article-aliases">
+                Also known as:
+                {% for alias in article.aliases %}
+                <span class="alias">{{ alias }}</span>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </p>
             {% endif %}
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
 
-    <div class="article-meta">
-        Generated at {{ article.generated_at }}
+            {% if article.appears_in %}
+            <p class="article-appearances">
+                Appears in:
+                {% for book in article.appears_in %}
+                <span class="book-tag">{{ book }}</span>
+                {% endfor %}
+            </p>
+            {% endif %}
+        </header>
+
+        {% if article.summary %}
+        <p class="article-summary">{{ article.summary | citations(citation_map) | autolink(root_path,
+            article.entity_name)
+            }}</p>
+        {% endif %}
+
+        {% if article.sections %}
+        <div class="article-toc">
+            <div class="toc-title">In this article</div>
+            <ul class="toc-list">
+                {% for section in article.sections %}
+                <li><a href="#section-{{ loop.index }}">{{ section.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        {% for section in article.sections %}
+        <section id="section-{{ loop.index }}" class="article-section">
+            <h2>{{ section.title }}</h2>
+            <div class="section-content">
+                {{ section.content | citations(citation_map) | autolink(root_path, article.entity_name) }}
+            </div>
+        </section>
+        {% endfor %}
+        {% endif %}
+
+        {% if article.citations %}
+        <section class="article-references">
+            <h2>References</h2>
+            <ul class="references-list">
+                {% for citation in article.citations %}
+                <li id="cite-{{ citation.id | string | lower | replace('#', '-') }}" class="reference-item">
+                    <span class="reference-number">[{{ loop.index }}]</span>
+                    <div class="reference-book">
+                        {{ citation.book }}{% if citation.chapter %} — {{ citation.chapter }}{% endif %}
+                    </div>
+                    <div class="reference-quote">"{{ citation.quote }}"</div>
+                    <div class="reference-meta">
+                        Source:
+                        {% if citation.source_file %}{{ citation.source_file }}; {% endif %}
+                        <code>{{ citation.id }}</code>;
+                        {{ citation.chunk_id }}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+        {% if article.related_entities %}
+        <div class="related">
+            <div class="related-title">Related</div>
+            <div class="related-list">
+                {% for related in article.related_entities %}
+                {% set link = related | entity_link(root_path) %}
+                {% if link %}
+                <a class="related-link" href="{{ link }}">{{ related }}</a>
+                {% else %}
+                <span class="related-unlinked" title="No article found">{{ related }}</span>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="article-meta">
+            Generated at {{ article.generated_at }}
+        </div>
     </div>
 </article>
 {% endblock %}

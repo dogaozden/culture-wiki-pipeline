@@ -424,6 +424,7 @@ Turn JSON articles into a browseable HTML website.
   - Graph data uses `related_entities` to emit edges; nodes include `type`, `url`, `prominence`, and `books`
   - Book rendering writes `wiki/index.html` plus per-book indexes and `_book-only/` debug pages; falls back to `wiki/old_index.html` if no books
   - Crown jewel overrides require `entity_type` in JSON and are copied before rendering
+  - Apocrypha markdown rendering uses `tables`, `fenced_code`, and `toc` extensions, derives titles from first H1 (or filename), and builds previews from the first non-heading paragraph for the Apocrypha index
 
 ---
 
@@ -454,6 +455,7 @@ Generate portrait images for entities using Gemini's native image generation (ge
    - Calls `gemini-3-pro-image-preview` via `generate_content()` with `response_modalities: ["IMAGE", "TEXT"]`
    - Saves to `data/images/{entity_type}/{slug}.png`
    - Ships without a found quote can still use the class-based prompt fallback
+   - Existing images are skipped unless `--force` is used; forced runs archive the previous image to `data/images/.archive/{entity_type}/{slug}_{timestamp}.png`
 
 **CLI Usage:**
 ```bash
@@ -473,7 +475,7 @@ python3 run.py --stage image --entity "Dajeil Gelian" --dry-run
 **Key features:**
 - **Quote validation**: Only verbatim-verified descriptions used
 - **Source traceability**: Logs which chunk file the quote came from
-- **Skip existing**: Won't regenerate images that already exist
+- **Skip existing + archive on force**: Won't regenerate images that already exist; `--force` archives old images before overwrite
 - **Ship class shortcuts**: GSV/GCU/ROU/etc. have curated sci-fi prompts
 
 **Supporting tools:**

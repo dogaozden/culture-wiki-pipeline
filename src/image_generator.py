@@ -261,8 +261,15 @@ class ImageGenerator:
             logger.error(f"Error generating image prompt: {e}")
             return None
 
-    def generate_image(self, entity_name: str, entity_type: str, prompt: str) -> bool:
-        """Call Nano Banana Pro API to generate image."""
+    def generate_image(self, entity_name: str, entity_type: str, prompt: str, force: bool = False) -> bool:
+        """Call Nano Banana Pro API to generate image.
+        
+        Args:
+            entity_name: Name of the entity
+            entity_type: Type of entity (characters, ships_and_minds, etc.)
+            prompt: Image generation prompt
+            force: If True, archive existing image and generate new one
+        """
         if not prompt:
             return False
 
@@ -270,8 +277,12 @@ class ImageGenerator:
         output_path = config.IMAGES_DIR / entity_type / f"{slug}.png"
         
         if output_path.exists():
-            logger.info(f"Image already exists for {entity_name}, skipping")
-            return True
+            if not force:
+                logger.info(f"Image already exists for {entity_name}, skipping (use force=True to regenerate)")
+                return True
+            else:
+                # Archive existing image before overwriting
+                self._archive_image(output_path, entity_type, slug)
 
         if self.dry_run:
             logger.info(f"[DRY RUN] Would generate image for {entity_name} with prompt: {prompt}")
@@ -306,6 +317,23 @@ class ImageGenerator:
         except Exception as e:
             logger.error(f"Error generating image: {e}")
             return False
+
+    def _archive_image(self, image_path: Path, entity_type: str, slug: str) -> None:
+        """Archive an existing image before overwriting.
+        
+        Archives to: data/images/.archive/{entity_type}/{slug}_{timestamp}.png
+        """
+        from datetime import datetime
+        import shutil
+        
+        archive_dir = config.IMAGES_DIR / ".archive" / entity_type
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_path = archive_dir / f"{slug}_{timestamp}.png"
+        
+        shutil.copy2(image_path, archive_path)
+        logger.info(f"Archived existing image to {archive_path}")
 
     def process_entity(self, entity: dict, entity_type: str) -> bool:
         """Run full image pipeline for a single entity."""

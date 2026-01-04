@@ -569,6 +569,13 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
     for article in book_arts:
         out_path = output_dir / f"{article.slug}.html"
         
+        # Check for image (use article slug - same file for cross-book or book-only)
+        image_filename = f"{article.slug}.png"
+        image_src = config.IMAGES_DIR / entity_type / image_filename
+        has_image = image_src.exists()
+        # Use wiki-root-relative path (template prepends root_path)
+        image_path_str = f"images/{entity_type}/{image_filename}" if has_image else None
+        
         # Check if there's a cross-book version of this article
         cross_book_article = _get_cross_book_article(entity_type, article.slug)
         
@@ -584,12 +591,14 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
                 citations_json=json.dumps(
                     [c.model_dump() for c in cross_book_article.citations], ensure_ascii=False
                 ),
+                image_path=image_path_str,
             )
             out_path.write_text(html, encoding="utf-8")
             
             # Also render book-only version to debug folder
             debug_path = debug_dir / f"{article.slug}.html"
             citation_map = _build_citation_map(article.citations)
+            # Debug folder uses same image path (root_path adjusts)
             html_debug = template.render(
                 title=article.entity_name,
                 article=article,
@@ -599,6 +608,7 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
                 citations_json=json.dumps(
                     [c.model_dump() for c in article.citations], ensure_ascii=False
                 ),
+                image_path=image_path_str,
             )
             debug_path.write_text(html_debug, encoding="utf-8")
         else:
@@ -613,6 +623,7 @@ def render_book_articles(book: Dict, entity_type: str, articles: List[Article]) 
                 citations_json=json.dumps(
                     [c.model_dump() for c in article.citations], ensure_ascii=False
                 ),
+                image_path=image_path_str,
             )
             out_path.write_text(html, encoding="utf-8")
 

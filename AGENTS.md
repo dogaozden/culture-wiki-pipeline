@@ -2,11 +2,9 @@
 
 **Before starting work on this project, read the following context documents:**
 
-1. **[ARCHITECTURE.md](./ARCHITECTURE.md)** — **START HERE.** Human-readable overview of the full pipeline, data flow, and known issues. This is the primary source of truth.
-2. **[culture-wiki-design-context.md](./culture-wiki-design-context.md)** — Detailed agent-focused architecture, pipeline stages, design decisions
-3. **[culture-wiki-technical-context.md](./culture-wiki-technical-context.md)** — Implementation details, model fields, conventions, config
-4. **[commands.txt](./commands.txt)** — Common CLI commands for running the pipeline
-5. **[TODO.md](./TODO.md)** — Current roadmap and task list
+1. **[ARCHITECTURE.md](./ARCHITECTURE.md)** — **START HERE.** Human-readable overview of the full pipeline, data flow, and CLI usage. This is the primary source of truth.
+2. **[LLM_CONTEXT.md](./LLM_CONTEXT.md)** — Technical implementation details, model schemas, conventions, and config for safe codebase changes.
+3. **[TODO.md](./TODO.md)** — Current roadmap and task list
 
 > ⚠️ **When making architectural changes, always update ARCHITECTURE.md first.** IMPORTANT: This ensures human collaborators stay informed.
 
