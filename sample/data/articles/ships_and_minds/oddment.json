@@ -1,0 +1,36 @@
+{
+  "entity_name": "Oddment",
+  "entity_type": "ships_and_minds",
+  "slug": "oddment",
+  "summary": "Oddment is a small, polite machine that steers the Patient Heron and translates the weather. [1]",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "aliases": [
+    "the polite machine"
+  ],
+  "appears_in": [
+    "the-lamplighters-tide"
+  ],
+  "sections": [
+    {
+      "title": "Character",
+      "content": "It speaks from a speaker the size of a teacup and apologises for arriving unannounced. [1]",
+      "citations": [
+        1
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "book": "the-lamplighters-tide",
+      "quote": "a small, polite machine named Oddment",
+      "chunk_id": "the-lamplighters-tide_001",
+      "chapter": "chapter_01",
+      "source_file": "books/the-lamplighters-tide/chapter_01.md"
+    }
+  ],
+  "related_entities": [
+    "Patient Heron"
+  ],
+  "prominence_score": 10
+}

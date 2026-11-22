@@ -1,0 +1,37 @@
+{
+  "entity_name": "Tamsin Verrow",
+  "entity_type": "characters",
+  "slug": "tamsin-verrow",
+  "summary": "Tamsin Verrow is a cartographer who draws maps of places that do not exist yet. [1]",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "aliases": [
+    "the cartographer"
+  ],
+  "appears_in": [
+    "the-lamplighters-tide"
+  ],
+  "sections": [
+    {
+      "title": "Arrival",
+      "content": "She travels on the Patient Heron with blank charts and a folding stool. [1]",
+      "citations": [
+        1
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "book": "the-lamplighters-tide",
+      "quote": "a cartographer who drew maps of places that did not exist yet",
+      "chunk_id": "the-lamplighters-tide_002",
+      "chapter": "chapter_02",
+      "source_file": "books/the-lamplighters-tide/chapter_02.md"
+    }
+  ],
+  "related_entities": [
+    "Patient Heron",
+    "Marrow Quill"
+  ],
+  "prominence_score": 10
+}

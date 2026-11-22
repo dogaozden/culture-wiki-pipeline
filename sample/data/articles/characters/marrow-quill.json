@@ -1,0 +1,47 @@
+{
+  "entity_name": "Marrow Quill",
+  "entity_type": "characters",
+  "slug": "marrow-quill",
+  "summary": "Marrow Quill is the keeper of the lamp on Saltgrave Point, a made-up character in the sample story. [1]",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "aliases": [
+    "the lamp-keeper"
+  ],
+  "appears_in": [
+    "the-lamplighters-tide"
+  ],
+  "sections": [
+    {
+      "title": "Role",
+      "content": "Marrow has kept the lamp for eleven winters and lights it whenever she is unsure. [1] She hosts Oddment and Tamsin Verrow after the Patient Heron arrives. [2]",
+      "citations": [
+        1,
+        2
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "book": "the-lamplighters-tide",
+      "quote": "Marrow Quill had kept the lamp on Saltgrave Point for eleven winters",
+      "chunk_id": "the-lamplighters-tide_001",
+      "chapter": "chapter_01",
+      "source_file": "books/the-lamplighters-tide/chapter_01.md"
+    },
+    {
+      "id": 2,
+      "book": "the-lamplighters-tide",
+      "quote": "she thanked Marrow for the tea in a way that sounded like an apology",
+      "chunk_id": "the-lamplighters-tide_002",
+      "chapter": "chapter_02",
+      "source_file": "books/the-lamplighters-tide/chapter_02.md"
+    }
+  ],
+  "related_entities": [
+    "Saltgrave Point",
+    "Oddment",
+    "Tamsin Verrow"
+  ],
+  "prominence_score": 10
+}

@@ -1,0 +1,44 @@
+{
+  "entity_name": "Saltgrave Point",
+  "entity_type": "locations",
+  "slug": "saltgrave-point",
+  "summary": "Saltgrave Point is a spit of grey stone at the mouth of the Orrin estuary. [1]",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "aliases": [
+    "the Point"
+  ],
+  "appears_in": [
+    "the-lamplighters-tide"
+  ],
+  "sections": [
+    {
+      "title": "Description",
+      "content": "The Tide Bell is older than the town that grew around it. [2]",
+      "citations": [
+        2
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "book": "the-lamplighters-tide",
+      "quote": "a spit of grey stone at the mouth of the Orrin estuary",
+      "chunk_id": "the-lamplighters-tide_002",
+      "chapter": "chapter_02",
+      "source_file": "books/the-lamplighters-tide/chapter_02.md"
+    },
+    {
+      "id": 2,
+      "book": "the-lamplighters-tide",
+      "quote": "The Tide Bell is older than the town",
+      "chunk_id": "the-lamplighters-tide_002",
+      "chapter": "chapter_02",
+      "source_file": "books/the-lamplighters-tide/chapter_02.md"
+    }
+  ],
+  "related_entities": [
+    "Marrow Quill"
+  ],
+  "prominence_score": 10
+}

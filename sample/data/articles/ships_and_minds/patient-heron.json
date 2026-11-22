@@ -1,0 +1,37 @@
+{
+  "entity_name": "Patient Heron",
+  "entity_type": "ships_and_minds",
+  "slug": "patient-heron",
+  "summary": "The Patient Heron is a crewless barge steered by the machine Oddment. [1]",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "aliases": [
+    "the barge"
+  ],
+  "appears_in": [
+    "the-lamplighters-tide"
+  ],
+  "sections": [
+    {
+      "title": "Voyage",
+      "content": "It came up the estuary with no crew on deck. [1]",
+      "citations": [
+        1
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "book": "the-lamplighters-tide",
+      "quote": "a barge called the Patient Heron came up the estuary with no crew on deck",
+      "chunk_id": "the-lamplighters-tide_001",
+      "chapter": "chapter_01",
+      "source_file": "books/the-lamplighters-tide/chapter_01.md"
+    }
+  ],
+  "related_entities": [
+    "Oddment",
+    "Tamsin Verrow"
+  ],
+  "prominence_score": 10
+}

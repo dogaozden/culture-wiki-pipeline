@@ -1,6 +1,8 @@
 # Culture Wiki Generator
 
-Generate a comprehensive, citation-backed wiki for Iain M. Banks' Culture series using LLM-assisted extraction.
+Generate a comprehensive, citation-backed wiki for a novel series using LLM-assisted extraction. Built around Iain M. Banks' Culture novels.
+
+> **No book text is included in this repository.** Bring your own legally owned books (epub converted to markdown chapters). The `sample/` folder holds a tiny made-up story so you can try the offline stages.
 
 ## Quick Start
 
@@ -32,6 +34,16 @@ Generate a comprehensive, citation-backed wiki for Iain M. Banks' Culture series
    cd wiki && python -m http.server 8000
    # Open http://localhost:8000
    ```
+
+## Try it without any books
+
+```bash
+pip install -r requirements.txt
+sample/run_sample.sh /tmp/culture-wiki-sample
+cd /tmp/culture-wiki-sample/wiki && python -m http.server 8000
+```
+
+This chunks the sample story, shows the first extraction prompt (`--dry-run`, no API call) and renders pre-made sample articles. Extraction, merging and synthesis need a `GEMINI_API_KEY` and your own books.
 
 ## Project Structure
 
